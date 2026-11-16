@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dispatcher</title>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f4f4f2; --card: #fff; --line: #e4e3de; --text: #111; --soft: #6b6a66;
+  --blue: #2a78d6; --green: #1a8a4a; --red: #d03b3b; --amber: #c98500;
+}
+@media (prefers-color-scheme: dark) {
+  :root { color-scheme: dark; --bg: #121211; --card: #1c1c1b; --line: #2e2e2c; --text: #f0efec; --soft: #9a9993;
+    --blue: #3987e5; --green: #3fb871; --red: #ef6464; --amber: #e0a226; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+button, input, select { font: inherit; color: var(--text); background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; }
+button { cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--blue); }
+button:disabled { opacity: .4; cursor: default; }
+.go { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 600; }
+.no { color: var(--soft); }
+input[type=number] { width: 90px; }
+
+header { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 28px; padding: 14px 24px; background: var(--card); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.time { font: 700 26px/1 ui-monospace, Menlo, monospace; }
+.num { display: flex; flex-direction: column; }
+.num b { font-size: 20px; font-variant-numeric: tabular-nums; }
+.num span { font-size: 12px; color: var(--soft); }
+.spacer { flex: 1; }
+.big { font-size: 17px; padding: 10px 22px; }
+.game { display: flex; gap: 6px; align-items: center; font-size: 13px; }
+.game select, .game button { font-size: 13px; padding: 4px 8px; }
+
+main { display: grid; grid-template-columns: 1.3fr 1fr; gap: 24px; padding: 20px 24px 60px; max-width: 1300px; margin: 0 auto; }
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--soft); margin: 0 0 10px; }
+.stack { display: grid; gap: 12px; }
+
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; }
+.card.alert { border-color: var(--red); }
+.tag { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+.tag.ask { color: var(--blue); } .tag.drv { color: var(--amber); } .tag.alert { color: var(--red); }
+.route { font-size: 19px; font-weight: 600; margin: 4px 0 2px; }
+.meta { color: var(--soft); font-size: 14px; }
+.opts { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.opt { border: 2px solid var(--line); border-radius: 10px; padding: 6px 12px; cursor: pointer; text-align: left; background: var(--card); }
+.opt.on { border-color: var(--blue); }
+.opt b { display: block; }
+.opt span { font-size: 13px; color: var(--soft); }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+.cost { font-size: 14px; color: var(--soft); }
+.note { margin-top: 8px; font-size: 14px; font-style: italic; color: var(--soft); }
+
+.wait { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.wait:first-of-type { border-top: 0; }
+
+.empty { text-align: center; color: var(--soft); padding: 28px 10px; }
+.feed { display: grid; gap: 14px; }
+.step h3 { font: 600 13px ui-monospace, Menlo, monospace; color: var(--soft); margin: 0 0 4px; }
+.line { padding: 3px 0; font-size: 14px; }
+.plus { color: var(--green); font-weight: 600; } .minus { color: var(--red); font-weight: 600; }
+#err { color: var(--red); font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <span class="time" id="time">—</span>
+  <span class="num"><b id="money">—</b><span>money</span></span>
+  <span class="num"><b id="ontime">—</b><span>on time (need 90%)</span></span>
+  <span class="num"><b id="orders">—</b><span>orders</span></span>
+  <button class="go big" id="continue">Continue ▶</button>
+  <span id="err"></span>
+  <span class="spacer"></span>
+  <span class="game">
+    <select id="worldSel"></select>
+    <select id="level">
+      <option value="1">Level 1</option><option value="2">Level 2</option><option value="3">Level 3</option><option value="4">Level 4</option>
+      <option value="5">Level 5</option><option value="6">Level 6</option><option value="7">Level 7</option><option value="8">Level 8</option>
+    </select>
+    <button id="newGame">New game</button>
+  </span>
+</header>
+
+<main>
+  <section>
+    <h2>To do</h2>
+    <div class="stack" id="todo"></div>
+  </section>
+  <section>
+    <h2>What happened</h2>
+    <div class="feed" id="feed"></div>
+  </section>
+</main>
+
+<script>
+const DAY = 1440;
+const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed"];
+const STOP_ON = ["price_request", "order_won", "gig_expired", "deadline_close", "visit_failed", "gig_dropped", "no_show", "order_changed", "order_cancelled"];
+const OPTION = { same_day: "Same day", next_day: "Next day", within_3_days: "Within 3 days" };
+
+const G = { world: null, snap: null, events: [], lastSeq: -1, places: {}, roads: {}, requests: new Map(), quoted: {}, choice: {}, steps: [] };
+const $ = id => document.getElementById(id);
+const pad = n => String(n).padStart(2, "0");
+const clock = m => `${DAYS[Math.floor(m / DAY)] ?? ""} ${pad(Math.floor((m % DAY) / 60))}:${pad(m % 60)}`;
+const eur = c => (c < 0 ? "−€" : "€") + Math.round(Math.abs(c) / 100).toLocaleString("en-GB");
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const name = id => G.places[id]?.name ?? id;
+const route = legs => legs.map(l => `${name(l.pickup.placeId)} → ${name(l.delivery.placeId)}`).join(" + ");
+const km = legs => legs.reduce((s, l) => s + (G.roads[l.pickup.placeId + ">" + l.delivery.placeId]?.km ?? 0), 0);
+
+async function api(path, opts = {}) {
+  const res = await fetch("/api" + path, { method: opts.method || "GET", headers: { "Content-Type": "application/json" }, body: opts.body ? JSON.stringify(opts.body) : undefined });
+  const text = await res.text(), data = text ? JSON.parse(text) : null;
+  if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+  return data;
+}
+function err(msg) { $("err").textContent = msg || ""; if (msg) setTimeout(() => $("err").textContent === msg && ($("err").textContent = ""), 6000); }
+
+// ---------- game state ----------
+async function boot() {
+  const map = await api("/v1/map");
+  for (const p of map.places) G.places[p.id] = p;
+  for (const r of map.roads) G.roads[r.from + ">" + r.to] = r;
+  await listWorlds();
+}
+
+async function listWorlds(pick) {
+  const worlds = (await api("/v1/worlds")).filter(w => w.kind === "practice" && !w.boardRun);
+  $("worldSel").innerHTML = [...worlds].reverse().map(w => `<option value="${w.worldId}">${w.worldId.slice(0, 8)} · L${w.level}${w.ended ? " · done" : ""}</option>`).join("") || `<option value="">no game</option>`;
+  const id = pick || worlds.filter(w => !w.ended).at(-1)?.worldId;
+  if (id) { $("worldSel").value = id; await open(id); } else render();
+}
+
+async function open(id) {
+  Object.assign(G, { world: id, events: [], lastSeq: -1, requests: new Map(), quoted: {}, choice: {}, steps: [] });
+  const log = await (await fetch(`/human-log/${id}`)).json().catch(() => []);
+  for (const x of log) if (x.action.type === "quote" && x.result.ok) G.quoted[x.action.requestId] = x.action.prices;
+  await refresh(true);
+}
+
+async function refresh(initial) {
+  const [snap, evs] = await Promise.all([api(`/v1/worlds/${G.world}`), api(`/v1/worlds/${G.world}/events?after=${G.lastSeq}`)]);
+  G.snap = snap;
+  const fresh = evs.filter(e => e.seq > G.lastSeq);
+  for (const e of fresh) { G.events.push(e); G.lastSeq = e.seq; if (e.kind === "price_request") G.requests.set(e.request.id, e.request); }
+  if (initial) groupHistory(); else if (fresh.length) G.steps.unshift({ at: snap.now, events: fresh });
+  render();
+}
+
+function groupHistory() {
+  // On load, show past events grouped by hour.
+  const byHour = new Map();
+  for (const e of G.events) { const h = Math.floor(e.at / 60); (byHour.get(h) || byHour.set(h, []).get(h)).push(e); }
+  G.steps = [...byHour.entries()].map(([h, events]) => ({ at: h * 60, events })).reverse();
+}
+
+async function act(action) {
+  const [r] = await api(`/v1/worlds/${G.world}/actions`, { method: "POST", body: [action] });
+  fetch("/human-log", { method: "POST", body: JSON.stringify({ worldId: G.world, now: G.snap.now, action, result: r }) });
+  if (!r.ok) err(r.reason);
+  return r;
+}
+
+// ---------- to do ----------
+function liveGigs(orderId) { return G.snap.gigs.filter(g => ["open", "booked", "working", "done"].includes(g.status) && g.stops.some(s => s.orderId === orderId)); }
+function legsWithoutDriver(o) {
+  const covered = new Set();
+  for (const g of liveGigs(o.id)) for (const s of g.stops) if (s.orderId === o.id) covered.add(s.leg);
+  o.deliveredAt.forEach((d, i) => d != null && covered.add(i));
+  return o.legs.map((_, i) => i).filter(i => !covered.has(i));
+}
+
+function render() {
+  const s = G.snap;
+  if (!s) { $("todo").innerHTML = `<div class="card empty">Pick a level and press New game.</div>`; return; }
+  const sc = s.score, ended = s.now >= s.endsAt;
+  $("time").textContent = ended ? "Week over" : clock(s.now);
+  $("money").textContent = eur(sc.marginCents);
+  $("money").style.color = sc.marginCents < 0 ? "var(--red)" : sc.marginCents > 0 ? "var(--green)" : "";
+  $("ontime").textContent = sc.wonOrders ? Math.round(sc.onTimeShare * 100) + "%" : "—";
+  $("ontime").style.color = !sc.wonOrders ? "" : sc.onTimeShare >= 0.9 ? "var(--green)" : "var(--red)";
+  $("orders").textContent = sc.wonOrders;
+  $("continue").disabled = ended;
+
+  const cards = [];
+  for (const r of [...s.openRequests].sort((a, b) => a.respondBy - b.respondBy)) if (!G.quoted[r.id]) cards.push(askCard(r));
+  const live = s.orders.filter(o => o.status !== "delivered" && o.status !== "cancelled");
+  for (const o of [...live].sort((a, b) => a.lastPickupAt - b.lastPickupAt)) {
+    const legs = legsWithoutDriver(o);
+    if (legs.length) cards.push(driverCard(o, legs));
+  }
+  const waiting = s.gigs.filter(g => g.status === "open");
+  if (waiting.length) cards.push(waitCard(waiting));
+  $("todo").innerHTML = cards.join("") || `<div class="card empty">${ended ? "The week is over." : "Nothing to do. Press Continue."}</div>`;
+  renderFeed();
+}
+
+function askCard(r) {
+  const pick = G.choice[r.id] ?? r.options[0].kind;
+  const opt = r.options.find(o => o.kind === pick);
+  return `<div class="card">
+    <div class="tag ask">Dealer asks for a price</div>
+    <div class="route">${esc(route(r.legs))}</div>
+    <div class="meta">${r.legs.length} car${r.legs.length > 1 ? "s" : ""} · ${Math.round(km(r.legs))} km</div>
+    <div class="opts">${r.options.map(o => `<button class="opt ${o.kind === pick ? "on" : ""}" data-pick="${r.id}|${o.kind}">
+      <b>${OPTION[o.kind]}</b><span>by ${clock(o.deadline)} · usual price ${eur(o.listPriceCents)}</span></button>`).join("")}</div>
+    <div class="cost">A driver usually costs about ${eur(r.referenceFeeCents)}</div>
+    ${r.note ? `<div class="note">“${esc(r.note.text)}”</div>` : ""}
+    <div class="row">€ <input type="number" id="price-${r.id}" value="${Math.round(opt.listPriceCents / 100)}">
+      <button class="go" data-quote="${r.id}">Send price</button>
+      <button class="no" data-decline="${r.id}">No thanks</button></div>
+  </div>`;
+}
+
+function driverCard(o, legs) {
+  const req = G.requests.get(o.id), fee = Math.round((req?.referenceFeeCents ?? 5000) * legs.length / o.legs.length / 100);
+  const hoursLeft = (o.lastPickupAt - G.snap.now) / 60, late = G.snap.now > o.deadline, urgent = late || hoursLeft < 3;
+  const when = late ? "already late" : hoursLeft < 0 ? "will be late" : `must leave by ${clock(o.lastPickupAt)}`;
+  return `<div class="card ${urgent ? "alert" : ""}">
+    <div class="tag ${urgent ? "alert" : "drv"}">Find a driver</div>
+    <div class="route">${esc(route(legs.map(i => o.legs[i])))}</div>
+    <div class="meta">Due ${clock(o.deadline)} · ${when} · dealer pays ${eur(o.priceCents)}</div>
+    ${req?.note ? `<div class="note">“${esc(req.note.text)}”</div>` : ""}
+    <div class="row">Pay the driver € <input type="number" id="fee-${o.id}" value="${fee}">
+      <button class="go" data-post="${o.id}" data-legs="${legs.join(",")}">Post job</button></div>
+  </div>`;
+}
+
+function waitCard(gigs) {
+  const order = id => G.snap.orders.find(o => o.id === id);
+  return `<div class="card"><div class="tag drv">Waiting for a driver</div>
+    ${gigs.map(g => {
+      const o = order(g.stops[0].orderId), fee = [...g.schedule].reverse().find(s => s.at <= G.snap.now)?.feeCents ?? g.schedule[0].feeCents;
+      return `<div class="wait"><span>${esc(o ? route([...new Set(g.stops.map(s => s.leg))].map(i => o.legs[i])) : g.id)}<br><span class="meta">offering ${eur(fee)}</span></span>
+        <button data-raise="${g.id}" data-fee="${fee}">+ €10</button></div>`;
+    }).join("")}</div>`;
+}
+
+// ---------- what happened ----------
+function say(e) {
+  const req = id => G.requests.get(id), r = id => req(id) ? esc(route(req(id).legs)) : esc(id);
+  const ord = id => G.snap.orders.find(o => o.id === id);
+  const gigRoute = gid => { const g = G.snap.gigs.find(x => x.id === gid); return g ? r(g.stops[0].orderId) : esc(gid); };
+  switch (e.kind) {
+    case "price_request": return `New request: ${r(e.request.id)}`;
+    case "order_won": return `✅ Dealer said yes: ${r(e.order.id)} for ${eur(e.order.priceCents)}`;
+    case "order_lost": return G.quoted[e.requestId] ? `❌ Dealer chose someone else: ${r(e.requestId)}` : null;
+    case "gig_booked": return `🚗 A driver took ${gigRoute(e.gigId)} for ${eur(e.feeCents)}`;
+    case "gig_dropped": return `↩️ The driver gave back ${gigRoute(e.gigId)}`;
+    case "no_show": return `↩️ The driver can't make it: ${gigRoute(e.gigId)}`;
+    case "gig_expired": return `⌛ Nobody took ${gigRoute(e.gigId)}. Post it again`;
+    case "deadline_close": return `⚠️ Still no driver for ${r(e.orderId)}. Time is running out`;
+    case "driver_late": return `🐢 The driver will be late for ${gigRoute(e.gigId)}`;
+    case "picked_up": return `Picked up ${r(e.orderId)}`;
+    case "delivered": return `📦 Delivered ${r(e.orderId)}`;
+    case "visit_failed": return `❗ Couldn't collect the car (${e.reason.replace("_", " ")}): ${r(e.orderId)}`;
+    case "order_changed": return `✏️ ${esc(e.message?.text)}`;
+    case "order_cancelled": return `🚫 Dealer cancelled ${r(e.orderId)}`;
+    case "forecast": return `❄️ ${esc(e.text)}`;
+    case "ledger": {
+      const c = e.line.cents, what = { revenue: "dealer paid", driver_fee: "paid the driver", late_refund: "late, money back to dealer",
+        undelivered_penalty: "not delivered, penalty", failed_visit: "failed pickup", release_fee: "cancelled a driver", waiting: "driver waited", fine: "fine" }[e.line.kind] || e.line.kind;
+      return `<span class="${c < 0 ? "minus" : "plus"}">${c < 0 ? "" : "+"}${eur(c)}</span> ${what}`;
+    }
+    default: return null;
+  }
+}
+
+function renderFeed() {
+  const html = G.steps.slice(0, 60).map(st => {
+    const lines = st.events.map(say).filter(Boolean);
+    return lines.length ? `<div class="step"><h3>${clock(st.at)}</h3>${lines.map(l => `<div class="line">${l}</div>`).join("")}</div>` : "";
+  }).join("");
+  $("feed").innerHTML = html || `<div class="empty">Nothing yet.</div>`;
+}
+
+// ---------- buttons ----------
+document.addEventListener("click", async e => {
+  const b = e.target.closest("button"); if (!b || b.disabled) return;
+  const d = b.dataset;
+  try {
+    if (d.pick) {
+      const [id, kind] = d.pick.split("|");
+      G.choice[id] = kind;
+      const r = G.requests.get(id), o = r.options.find(x => x.kind === kind);
+      render(); $(`price-${id}`).value = Math.round(o.listPriceCents / 100);
+    } else if (d.quote) {
+      const kind = G.choice[d.quote] ?? G.requests.get(d.quote).options[0].kind;
+      const prices = { [kind]: Math.round(+$(`price-${d.quote}`).value * 100) };
+      if ((await act({ type: "quote", requestId: d.quote, prices })).ok) G.quoted[d.quote] = prices;
+      render();
+    } else if (d.decline) {
+      const o = G.requests.get(d.decline).options[0], prices = { [o.kind]: o.listPriceCents * 10 };
+      if ((await act({ type: "quote", requestId: d.decline, prices })).ok) G.quoted[d.decline] = prices;
+      render();
+    } else if (d.post) {
+      const o = G.snap.orders.find(x => x.id === d.post), legs = d.legs.split(",").map(Number);
+      const stops = legs.flatMap(i => [
+        { orderId: o.id, leg: i, kind: "pickup", withCharging: !!(o.legs[i].car.electric && o.legs[i].car.chargePercent < 30) },
+        { orderId: o.id, leg: i, kind: "delivery" }]);
+      const premium = legs.some(i => o.legs[i].car.premium);
+      await act({ type: "post", stops, audience: { experienced: premium, manualLicence: false }, schedule: [{ at: G.snap.now, feeCents: Math.round(+$(`fee-${o.id}`).value * 100) }] });
+      await refresh();
+    } else if (d.raise) {
+      await act({ type: "reprice", gigId: d.raise, schedule: [{ at: G.snap.now, feeCents: +d.fee + 1000 }] });
+      await refresh();
+    }
+  } catch (x) { err(x.message); }
+});
+
+$("continue").onclick = async () => {
+  $("continue").disabled = true;
+  try { await api(`/v1/worlds/${G.world}/advance`, { method: "POST", body: { untilEvent: STOP_ON, max: G.snap.endsAt } }); await refresh(); }
+  catch (x) { err(x.message); }
+  $("continue").disabled = G.snap.now >= G.snap.endsAt;
+};
+document.addEventListener("keydown", e => { if (e.key === "Enter" && document.activeElement.tagName !== "INPUT") $("continue").click(); });
+$("worldSel").onchange = e => e.target.value && open(e.target.value).catch(x => err(x.message));
+$("newGame").onclick = async () => {
+  try { const { worldId } = await api("/v1/worlds", { method: "POST", body: { level: +$("level").value } }); await listWorlds(worldId); }
+  catch (x) { err(x.message); }
+};
+
+boot().catch(x => err(x.message));
+</script>
+</body>
+</html>

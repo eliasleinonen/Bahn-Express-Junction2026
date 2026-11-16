@@ -1,0 +1,678 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spread · Dispatch</title>
+<style>
+:root {
+  --ink: #0b0d10; --hair: #1d2228; --dim: #59626d; --mid: #8a939e; --hi: #e8e6e1;
+  --sig: #ff6a2a; --bad: #e5484d; --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  --sans: "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+* { box-sizing: border-box; margin: 0; }
+html, body { height: 100%; background: var(--ink); color: var(--hi); overflow: hidden; }
+body { font: 12px/1.4 var(--sans); }
+canvas#map { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; transition: opacity .8s ease; }
+
+aside { position: fixed; top: 0; right: 0; bottom: 0; width: 400px; padding: 28px 30px; display: flex; flex-direction: column; gap: 22px;
+  border-left: 1px solid var(--hair); background: linear-gradient(to right, rgba(11,13,16,.0), rgba(11,13,16,.92) 6%); }
+.label { font: 600 10px/1 var(--sans); letter-spacing: .18em; text-transform: uppercase; color: var(--dim); }
+.brand { display: flex; justify-content: space-between; align-items: center; }
+.brand b { font: 700 13px/1 var(--sans); letter-spacing: .32em; text-transform: uppercase; }
+.mode { font: 600 10px/1 var(--mono); letter-spacing: .14em; color: var(--mid); display: flex; gap: 8px; align-items: center; }
+.mode i { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); display: inline-block; }
+.mode.live i { background: var(--sig); animation: blink 1.2s steps(2) infinite; }
+@keyframes blink { 50% { opacity: .2; } }
+
+.clock { font: 300 64px/1 var(--mono); letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.clock small { display: block; font: 600 10px/1 var(--sans); letter-spacing: .18em; color: var(--dim); margin-bottom: 10px; }
+.week { display: grid; grid-template-columns: repeat(10, 1fr); gap: 3px; margin-top: 12px; }
+.week div { height: 3px; background: var(--hair); position: relative; overflow: hidden; }
+.week div span { position: absolute; inset: 0; background: var(--hi); transform-origin: left; transform: scaleX(0); }
+.week-l { display: grid; grid-template-columns: repeat(10, 1fr); gap: 3px; margin-top: 6px; font: 9px/1 var(--mono); color: var(--dim); }
+
+.stats { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--hair); }
+.stat { padding: 14px 0 12px; border-bottom: 1px solid var(--hair); }
+.stat:nth-child(odd) { border-right: 1px solid var(--hair); }
+.stat:nth-child(even) { padding-left: 18px; }
+.stat b { display: block; font: 400 26px/1.1 var(--mono); font-variant-numeric: tabular-nums; margin-top: 8px; }
+.stat.wide { grid-column: span 2; border-right: 0; }
+.stat.wide b { font-size: 38px; }
+canvas#spark { width: 100%; height: 44px; display: block; margin-top: 8px; }
+
+.board { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.board .label { margin-bottom: 8px; }
+.row { display: grid; grid-template-columns: 50px 82px 1fr auto; gap: 8px; padding: 6px 0; border-top: 1px solid var(--hair);
+  font: 11px/1.2 var(--mono); color: var(--mid); white-space: nowrap; animation: drop .35s ease-out; }
+.row .t { color: var(--dim); }
+.row .k { color: var(--hi); letter-spacing: .06em; }
+.row .r { overflow: hidden; text-overflow: ellipsis; }
+.row.won .k { color: var(--sig); } .row.bad .k, .row.bad .v { color: var(--bad); } .row .v { color: var(--hi); }
+@keyframes drop { from { transform: translateY(-8px); opacity: 0; } }
+.foot { font: 10px/1.5 var(--mono); color: var(--dim); letter-spacing: .04em; }
+
+.legend { position: fixed; left: 30px; bottom: 26px; display: flex; gap: 22px; font: 10px/1 var(--mono); color: var(--mid); letter-spacing: .06em; text-transform: uppercase; }
+.legend span { display: flex; align-items: center; gap: 8px; }
+.legend i { display: inline-block; }
+.title { position: fixed; left: 30px; top: 26px; }
+.title h1 { font: 700 13px/1 var(--sans); letter-spacing: .32em; text-transform: uppercase; }
+.title p { font: 11px/1.6 var(--mono); color: var(--dim); margin-top: 8px; }
+
+.summary { position: fixed; left: calc((100vw - 400px) / 2); top: 50%; transform: translate(-50%, -50%); text-align: center; pointer-events: none;
+  opacity: 0; transition: opacity .6s; }
+.summary.on { opacity: 1; }
+.summary .label { margin-bottom: 14px; }
+.summary h2 { font: 300 76px/1 var(--mono); letter-spacing: -.03em; }
+.summary p { font: 13px/1.8 var(--mono); color: var(--mid); margin-top: 14px; }
+@media (max-width: 900px) { aside { width: 300px; } .clock { font-size: 44px; } .summary { left: calc((100vw - 300px) / 2); } }
+</style>
+</head>
+<body>
+<canvas id="map"></canvas>
+
+<div class="title">
+  <h1>Spread</h1>
+  <p id="sub">car transport dispatch · finland</p>
+</div>
+
+<div class="legend">
+  <span><i style="width:18px;height:1px;background:var(--sig);opacity:.6"></i>won, waiting</span>
+  <span><i style="width:6px;height:6px;border-radius:50%;background:var(--sig)"></i>car moving</span>
+  <span><i style="width:9px;height:9px;border-radius:50%;border:1px solid var(--hi)"></i>delivered</span>
+  <span><i style="width:9px;height:9px;border-radius:50%;border:1px solid var(--bad)"></i>late / no driver</span>
+</div>
+
+<div class="summary" id="summary">
+  <div class="label" id="sumLabel">Week complete</div>
+  <h2 id="sumMargin">€0</h2>
+  <p id="sumLine"></p>
+</div>
+
+<aside>
+  <div class="brand"><b>Dispatch</b><span class="mode" id="mode"><i></i><span id="modeText">STANDBY</span></span></div>
+  <div>
+    <div class="clock" id="clock"><small>MONDAY</small>00:00</div>
+    <div class="week" id="week"></div>
+    <div class="week-l">${"MTWTFSSMTW".split("").map(c => `<span>${c}</span>`).join("")}</div>
+  </div>
+  <div class="stats">
+    <div class="stat wide"><span class="label">Gross margin</span><b id="margin">€0</b><canvas id="spark"></canvas></div>
+    <div class="stat"><span class="label">Orders won</span><b id="won">0</b></div>
+    <div class="stat"><span class="label">On time</span><b id="ontime">—</b></div>
+    <div class="stat"><span class="label">In transit</span><b id="moving">0</b></div>
+    <div class="stat"><span class="label">Delivered</span><b id="delivered">0</b></div>
+  </div>
+  <div class="board"><span class="label">Dispatch log</span><div id="rows"></div></div>
+  <div class="foot" id="foot">waiting for a run</div>
+</aside>
+
+<script>
+// ============================================================================
+// Data: replays the team's real worlds from the Spread API (through the local
+// server). Read-only: this page never sends an action.
+// ============================================================================
+const DAY = 1440, DAYF = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY", "MONDAY · LATE CARS", "TUESDAY · LATE CARS", "WEDNESDAY · LATE CARS"];
+const ROUTES_PER_SEC = 10;
+const FINLAND = [
+  [59.82, 22.95], [59.98, 23.6], [60.1, 24.4], [60.15, 24.95], [60.27, 25.6], [60.38, 26.3], [60.45, 26.95],
+  [60.57, 27.75], [60.95, 28.45], [61.25, 29.0], [61.6, 29.6], [62.05, 30.2], [62.4, 31.0], [62.9, 31.55],
+  [63.3, 31.2], [63.75, 30.4], [64.2, 29.95], [64.75, 30.1], [65.15, 29.75], [65.65, 30.1], [66.1, 29.6],
+  [66.75, 29.2], [67.3, 29.9], [67.8, 30.0], [68.25, 28.65], [68.55, 28.4], [68.95, 28.75], [69.3, 29.0],
+  [69.7, 29.3], [69.95, 28.4], [70.08, 27.9], [69.9, 27.0], [69.7, 26.3], [69.45, 25.85], [69.05, 25.6],
+  [68.85, 25.1], [68.6, 24.1], [68.75, 23.2], [68.85, 22.2], [69.05, 21.3], [69.3, 20.6], [69.05, 20.55],
+  [68.55, 21.4], [68.4, 22.2], [68.2, 23.1], [67.9, 23.6], [67.4, 23.75], [66.8, 23.95], [66.3, 23.65],
+  [65.85, 24.15], [65.7, 24.6], [65.45, 25.25], [65.05, 25.35], [64.85, 25.0], [64.6, 24.4], [64.25, 23.85],
+  [63.85, 23.1], [63.6, 22.5], [63.3, 22.1], [63.1, 21.55], [62.75, 21.1], [62.3, 21.3], [61.85, 21.35],
+  [61.5, 21.45], [61.13, 21.4], [60.8, 21.3], [60.5, 21.5], [60.25, 22.1], [60.0, 22.4], [59.82, 22.95],
+];
+const KEEP = new Set(["price_request", "order_won", "order_changed", "order_cancelled", "picked_up", "delivered", "gig_expired", "deadline_close", "ledger"]);
+
+async function api(path) {
+  const r = await fetch("/api" + path);
+  if (!r.ok) throw new Error(`${path}: ${r.status}`);
+  return r.json();
+}
+
+const cache = new Map();   // worldId -> { events, lastSeq, drivers, info }
+async function loadWorld(info) {
+  let w = cache.get(info.worldId);
+  if (!w) {
+    const [events, drivers] = await Promise.all([api(`/v1/worlds/${info.worldId}/events`), api(`/v1/worlds/${info.worldId}/drivers`).catch(() => [])]);
+    w = { info, events: [], lastSeq: -1, drivers };
+    cache.set(info.worldId, w);
+    addEvents(w, events);
+  } else if (!info.ended) {
+    addEvents(w, await api(`/v1/worlds/${info.worldId}/events?after=${w.lastSeq}`));
+  }
+  w.info = info;
+  return w;
+}
+function addEvents(w, evs) {
+  let n = 0;
+  for (const e of evs) { if (e.seq <= w.lastSeq) continue; w.lastSeq = e.seq; if (KEEP.has(e.kind)) { w.events.push(e); n++; } }
+  w.wins = w.events.filter(e => e.kind === "order_won").length;
+  return n;
+}
+
+// ============================================================================
+// Map rendering
+// ============================================================================
+const cv = document.getElementById("map"), cx = cv.getContext("2d");
+const trail = document.createElement("canvas"), tx = trail.getContext("2d");
+const base = document.createElement("canvas"), bx = base.getContext("2d");
+let DPR = 1, W = 0, H = 0, P = null, places = {}, placeList = [], roads = {};
+
+function layout() {
+  DPR = Math.min(2, devicePixelRatio || 1);
+  W = innerWidth; H = innerHeight;
+  for (const c of [cv, trail, base]) { c.width = W * DPR; c.height = H * DPR; }
+  for (const c of [cx, tx, bx]) c.setTransform(DPR, 0, 0, DPR, 0, 0);
+  const panel = W > 900 ? 400 : 300, area = { x: 30, y: 70, w: W - panel - 60, h: H - 130 };
+  const lat = [59.7, 66.9], lon = [20.9, 31.4], k = Math.cos(63.3 * Math.PI / 180);
+  const sc = Math.min(area.w / ((lon[1] - lon[0]) * k), area.h / (lat[1] - lat[0]));
+  const ox = area.x + (area.w - (lon[1] - lon[0]) * k * sc) / 2, oy = area.y + (area.h - (lat[1] - lat[0]) * sc) / 2;
+  P = (la, lo) => [ox + (lo - lon[0]) * k * sc, oy + (lat[1] - la) * sc];
+  for (const p of placeList) p.xy = P(p.lat, p.lon);
+  drawBase(currentDrivers);
+  tx.clearRect(0, 0, W, H);
+}
+
+function inside(x, y, poly) {
+  let c = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i], [xj, yj] = poly[j];
+    if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c;
+  }
+  return c;
+}
+
+let currentDrivers = [];
+function drawBase(drivers) {
+  currentDrivers = drivers;
+  bx.clearRect(0, 0, W, H);
+  const poly = FINLAND.map(([la, lo]) => P(la, lo));
+  const count = {};
+  for (const d of drivers) count[d.homePlaceId] = (count[d.homePlaceId] || 0) + 1;
+  const max = Math.max(1, ...Object.values(count));
+  const step = Math.max(6, Math.round(Math.min(W, H) / 120));
+  for (let y = 0; y < H; y += step) for (let x = (y / step) % 2 ? step / 2 : 0; x < W; x += step) {
+    if (!inside(x, y, poly)) continue;
+    let v = 0;
+    for (const p of placeList) {
+      const c = count[p.id]; if (!c) continue;
+      const dx = x - p.xy[0], dy = y - p.xy[1];
+      v += (c / max) * Math.exp(-(dx * dx + dy * dy) / (2 * (step * 4.5) ** 2));
+    }
+    v = Math.min(1, v);
+    const r = 0.95 + 1.6 * Math.sqrt(v);
+    const g = Math.round(50 + 80 * v), b = Math.round(57 + 76 * v);
+    bx.fillStyle = `rgb(${g - 4},${g},${b})`;
+    bx.beginPath(); bx.arc(x, y, r, 0, 7); bx.fill();
+  }
+  // Town ticks and names.
+  bx.font = `500 9.5px ${getComputedStyle(document.body).getPropertyValue("--mono")}`;
+  bx.textBaseline = "middle";
+  const placed = placeList.map(p => [p.xy[0] - 3, p.xy[1] - 3, p.xy[0] + 3, p.xy[1] + 3]);
+  for (const p of [...placeList].sort((a, b) => (count[b.id] || 0) - (count[a.id] || 0))) {
+    const [x, y] = p.xy;
+    bx.fillStyle = "#c9c6bf"; bx.fillRect(x - 1.5, y - 1.5, 3, 3);
+    const label = p.name.toUpperCase(), w = bx.measureText(label).width;
+    const box = [x + 7, y - 5, x + 9 + w, y + 5];
+    if (placed.some(b => box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1])) continue;
+    placed.push(box);
+    bx.fillStyle = (count[p.id] || 0) > max * 0.2 ? "#9aa3ad" : "#5d6670";
+    bx.fillText(label, x + 8, y);
+  }
+}
+
+function ctrl(a, b) {
+  const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2, dx = b[0] - a[0], dy = b[1] - a[1], len = Math.hypot(dx, dy) || 1;
+  const k = Math.min(45, len * 0.12);
+  return [mx - dy / len * k, my + dx / len * k];
+}
+function geo(ln) {
+  ln.a = places[ln.pa].xy; ln.b = places[ln.pb].xy;
+  if (ln.pbOld) {
+    const k = Math.min(1, (performance.now() - ln.blend) / 900), e = k * k * (3 - 2 * k), o = places[ln.pbOld].xy;
+    ln.b = [o[0] + (ln.b[0] - o[0]) * e, o[1] + (ln.b[1] - o[1]) * e];
+    if (k >= 1) ln.pbOld = null;
+  }
+  ln.c = ctrl(ln.a, ln.b);
+}
+function bez(a, c, b, t) {
+  const u = 1 - t;
+  return [u * u * a[0] + 2 * u * t * c[0] + t * t * b[0], u * u * a[1] + 2 * u * t * c[1] + t * t * b[1]];
+}
+function strokeArc(g, a, c, b, t0, t1) {
+  g.beginPath();
+  const n = 24;
+  for (let i = 0; i <= n; i++) { const p = bez(a, c, b, t0 + (t1 - t0) * i / n); i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]); }
+  g.stroke();
+}
+
+// ============================================================================
+// Simulation state for the week being shown
+// ============================================================================
+let S = null;
+function freshState(w) {
+  return {
+    w, clock: 0, idx: 0, ptr: 0, lanes: new Map(), ghosts: [], fx: [], orders: new Map(), margin: 0, series: [],
+    won: 0, delivered: 0, onTime: 0, finished: 0, late: 0, deliveredAt: new Map(), done: false,
+  };
+}
+
+function prepare(w) {
+  const s = freshState(w);
+  // Real travel times: when each car was collected and delivered.
+  for (const e of w.events) if (e.kind === "delivered") s.deliveredAt.set(e.orderId + ":" + e.leg, e.at);
+  // Pace: one steady world speed (world minutes per real second), set so that about
+  // ROUTES_PER_SEC orders appear per second in business hours. Every car moves at this
+  // same speed, so a 6-hour drive takes six times as long on screen as a 1-hour drive.
+  const busy = w.events.filter(e => e.kind === "order_won" && e.at % DAY >= 540 && e.at % DAY < 1080 && e.at < 5 * DAY);
+  const days = new Set(busy.map(e => Math.floor(e.at / DAY))).size || 1;
+  s.base = Math.max(6, Math.min(45, ROUTES_PER_SEC / Math.max(1e-3, busy.length / (days * 540))));
+  const homes = new Map();
+  for (const d of w.drivers) homes.set(d.homePlaceId, (homes.get(d.homePlaceId) || 0) + 1);
+  s.hubs = [...homes].map(([placeId, count], i) => ({ placeId, count, phase: (i * 0.618) % 1 }))
+    .filter(h => places[h.placeId]).sort((a, b) => b.count - a.count).slice(0, 14);
+  buildTimeline(s, w);
+  tx.clearRect(0, 0, W, H);
+  drawBase(w.drivers);
+  return s;
+}
+
+// The whole week is known in advance, so the playback speed is planned up front:
+// steady speed when things happen, a gentle ease up to MAX_FF times faster through quiet
+// nights and weekends. The curve is smoothed over hours, so the clock never lurches.
+const BIN = 10, MAX_FF = 8;
+function buildTimeline(s, w) {
+  const evs = w.events, first = evs[0]?.at ?? 0;
+  const picks = new Map();
+  for (const e of evs) if (e.kind === "picked_up") picks.set(e.orderId + ":" + e.leg, e);
+  let endAt = evs.at(-1)?.at ?? first;
+  const W0 = Math.max(0, first - 20), n = Math.max(1, Math.ceil((endAt + 90 - W0) / BIN));
+  const act = new Float64Array(n);
+  const bin = t => Math.min(n - 1, Math.max(0, Math.floor((t - W0) / BIN)));
+  for (const e of evs) if (e.kind === "order_won") act[bin(e.at)] += 1;
+  const legOf = new Map();
+  for (const e of evs) if (e.kind === "order_won") e.order.legs.forEach((l, i) => legOf.set(e.order.id + ":" + i, l));
+  for (const [key, e] of picks) {
+    const l = legOf.get(key); if (!l) continue;
+    const road = roads[l.pickup.placeId + ">" + l.delivery.placeId]?.minutes ?? 120;
+    const del = s.deliveredAt.get(key), to = e.at + Math.min(del != null ? del - e.at : road, road * 1.25);
+    for (let b = bin(e.at); b <= bin(to); b++) act[b] += 0.25;   // a car on the road keeps the pace steady
+  }
+  // log-speed target per bin, then a wide Gaussian smooth (sigma 3 world hours)
+  const raw = Array.from(act, a => Math.log(1 + (MAX_FF - 1) * Math.exp(-a / 0.6)));
+  const sig = 180 / BIN, rad = Math.ceil(sig * 3), kern = [];
+  for (let k = -rad; k <= rad; k++) kern.push(Math.exp(-(k * k) / (2 * sig * sig)));
+  const T = new Float64Array(n + 1), lm = new Float64Array(n), mult = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    let v = 0, z = 0;
+    for (let k = -rad; k <= rad; k++) { const j = i + k; if (j < 0 || j >= n) continue; v += raw[j] * kern[k + rad]; z += kern[k + rad]; }
+    lm[i] = v / z;
+  }
+  // Limit how fast the speed may change in real time (at most 25% per second), both ways.
+  const maxStep = i => Math.log(1.25) * BIN / (s.base * Math.exp(lm[i]));
+  for (let pass = 0; pass < 3; pass++) {
+    for (let i = 1; i < n; i++) lm[i] = Math.min(lm[i], lm[i - 1] + maxStep(i - 1));
+    for (let i = n - 2; i >= 0; i--) lm[i] = Math.min(lm[i], lm[i + 1] + maxStep(i + 1));
+  }
+  for (let i = 0; i < n; i++) { mult[i] = Math.exp(lm[i]); T[i + 1] = T[i] + BIN / (s.base * mult[i]); }
+  Object.assign(s, { W0, T, mult, bi: 0, elapsed: 0, clock: W0, view: W0, speed: s.base * mult[0], end: T[n] });
+}
+function clockAt(s, t) {
+  while (s.bi < s.T.length - 2 && s.T[s.bi + 1] <= t) s.bi++;
+  const f = Math.min(1, (t - s.T[s.bi]) / (s.T[s.bi + 1] - s.T[s.bi]));
+  s.speed = s.base * s.mult[s.bi];
+  return s.W0 + BIN * (s.bi + f);
+}
+
+const xyOf = id => places[id]?.xy;
+// Each car glides on its own eased real-time tween, timed from its real travel time.
+// A car leaves at its real pickup minute and drives at road speed. If it arrived much later
+// than the drive takes (it waited at a closed site), it waits at the destination instead.
+function launch(ln, pickedAt, deliveredAt) {
+  const road = roads[ln.pa + ">" + ln.pb]?.minutes ?? 120;
+  ln.state = "move"; ln.from = pickedAt;
+  ln.to = deliveredAt == null ? pickedAt + road : pickedAt + Math.min(deliveredAt - pickedAt, road * 1.25);
+  ln.known = deliveredAt != null;
+}
+const ease = x => x < 0.5 ? 2 * x * x : 1 - (-2 * x + 2) ** 2 / 2;
+function fx(kind, xy, color) { if (xy) S.fx.push({ kind, xy, color, t0: performance.now() }); }
+
+function apply(e) {
+  const s = S;
+  switch (e.kind) {
+    case "price_request": for (const l of e.request.legs) fx("ping", xyOf(l.pickup.placeId), "#5d6670"); break;
+    case "order_won": {
+      const o = e.order; s.won++;
+      s.orders.set(o.id, { deadline: o.deadline, price: o.priceCents, legs: o.legs, left: o.legs.length, late: false });
+      o.legs.forEach((l, i) => {
+        if (places[l.pickup.placeId] && places[l.delivery.placeId])
+          s.lanes.set(o.id + ":" + i, { pa: l.pickup.placeId, pb: l.delivery.placeId, born: performance.now(), state: "wait" });
+      });
+      log("won", "WON", route(o.legs), eur(o.priceCents), e.at);
+      break;
+    }
+    case "order_changed": {
+      const o = s.orders.get(e.order.id); if (!o) break;
+      o.deadline = e.order.deadline;
+      e.order.legs.forEach((l, i) => {
+        const ln = s.lanes.get(e.order.id + ":" + i);
+        if (ln && places[l.delivery.placeId] && ln.pb !== l.delivery.placeId) { ln.pbOld = ln.pb; ln.pb = l.delivery.placeId; ln.blend = performance.now(); }
+      });
+      break;
+    }
+    case "order_cancelled": {
+      for (const [k] of s.lanes) if (k.startsWith(e.orderId + ":")) s.lanes.delete(k);
+      if (s.orders.has(e.orderId)) { s.orders.delete(e.orderId); s.won--; }
+      break;
+    }
+    case "picked_up": {
+      const ln = s.lanes.get(e.orderId + ":" + e.leg); if (!ln) break;
+      launch(ln, e.at, s.deliveredAt.get(e.orderId + ":" + e.leg) ?? null);
+      break;
+    }
+    case "delivered": {
+      const key = e.orderId + ":" + e.leg, ln = s.lanes.get(key), o = s.orders.get(e.orderId);
+      const late = o ? e.at > o.deadline : false;
+      if (ln) { geo(ln); ln.late = late; ln.key = key; land(ln); }
+      if (o) {
+        o.late ||= late;
+        if (--o.left === 0) {
+          s.finished++; o.late ? s.late++ : s.onTime++;
+          log(o.late ? "bad" : "", o.late ? "LATE" : "DELIVERED", route(o.legs), "", e.at);
+        }
+      }
+      s.delivered++;
+      break;
+    }
+    case "gig_expired": case "deadline_close": {
+      const id = e.orderId ?? null;
+      if (id && s.orders.has(id)) { const l = s.orders.get(id).legs[0]; fx("x", xyOf(l.pickup.placeId), "#e5484d"); log("bad", "NO DRIVER", route(s.orders.get(id).legs), "", e.at); }
+      break;
+    }
+    case "ledger": s.margin += e.line.cents; s.series.push([e.at, s.margin]); break;
+  }
+}
+
+// ============================================================================
+// Frame loop
+// ============================================================================
+let last = performance.now();
+let lastPanel = 0, frameNo = 0;
+function frame() {
+  const now = performance.now();   // one clock for tweens, effects and the frame step
+  const dt = Math.min(0.1, (now - last) / 1000); last = now; frameNo++;
+  if (S && !S.done) advanceClock(dt);
+  if (S) S.view = S.clock;
+  draw(now, dt);
+  if (S && now - lastPanel > 100) { lastPanel = now; panel(); }
+  requestAnimationFrame(frame);
+}
+
+function advanceClock(dt) {
+  const s = S, evs = s.w.events;
+  s.elapsed += dt;
+  s.clock = clockAt(s, Math.min(s.elapsed, s.end));
+  while (s.ptr < evs.length && evs[s.ptr].at <= s.clock) apply(evs[s.ptr++]);
+  // fade the trail of finished routes slowly, so busy corridors glow
+  if (frameNo % 10 === 0) {
+    tx.globalCompositeOperation = "destination-out"; tx.fillStyle = "rgba(0,0,0,.04)"; tx.fillRect(0, 0, W, H);
+    tx.globalCompositeOperation = "source-over";
+  }
+  if (s.elapsed >= s.end && s.ptr >= evs.length) finishWeek();
+}
+
+function addArc(g, a, c, b, t0, t1, n = 20) {
+  for (let i = 0; i <= n; i++) { const p = bez(a, c, b, t0 + (t1 - t0) * i / n); i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]); }
+}
+
+function land(ln) {
+  tx.strokeStyle = ln.late ? "rgba(229,72,77,.22)" : "rgba(232,230,225,.10)"; tx.lineWidth = 1;
+  strokeArc(tx, ln.a, ln.c, ln.b, 0, 1);
+  // Retain a small number of just-completed real routes as flowing after-images.
+  // They preserve a sense of an active network between events without inventing routes.
+  S.ghosts.push({ a: [...ln.a], c: [...ln.c], b: [...ln.b], late: ln.late, t0: performance.now(), phase: Math.random() });
+  if (S.ghosts.length > 28) S.ghosts.splice(0, S.ghosts.length - 28);
+  fx("ring", ln.b, ln.late ? "#e5484d" : "#e8e6e1");
+  S.lanes.delete(ln.key);
+}
+
+function drawFleetPulse(now) {
+  const hubs = S.hubs ?? [];
+  cx.save();
+  cx.lineWidth = 1;
+  for (const hub of hubs) {
+    const xy = xyOf(hub.placeId); if (!xy) continue;
+    const wave = (now / 2600 + hub.phase) % 1;
+    const fade = (1 - wave) ** 2;
+    cx.globalAlpha = 0.16 + fade * 0.25;
+    cx.strokeStyle = "#ff6a2a";
+    cx.beginPath(); cx.arc(xy[0], xy[1], 3 + wave * 14, 0, 7); cx.stroke();
+    cx.globalAlpha = 0.3 + fade * 0.45;
+    cx.fillStyle = "#ff6a2a";
+    cx.beginPath(); cx.arc(xy[0], xy[1], 1.5 + Math.min(2, hub.count * 0.12), 0, 7); cx.fill();
+  }
+  cx.restore();
+}
+
+function drawGhostFlows(now) {
+  S.ghosts = S.ghosts.filter(g => now - g.t0 < 8500);
+  cx.save();
+  for (const g of S.ghosts) {
+    const age = now - g.t0, fade = Math.min(1, age / 500) * Math.max(0, 1 - age / 8500);
+    const t = (age / 1650 + g.phase) % 1;
+    const color = g.late ? "229,72,77" : "255,106,42";
+    cx.globalAlpha = fade * 0.15;
+    cx.strokeStyle = `rgb(${color})`; cx.lineWidth = 1;
+    strokeArc(cx, g.a, g.c, g.b, 0, 1);
+    cx.globalAlpha = fade * 0.8;
+    cx.strokeStyle = `rgb(${color})`; cx.lineWidth = 1.8;
+    cx.beginPath(); addArc(cx, g.a, g.c, g.b, Math.max(0, t - 0.08), t, 7); cx.stroke();
+    const p = bez(g.a, g.c, g.b, t);
+    cx.fillStyle = g.late ? "#e5484d" : "#ff6a2a";
+    cx.beginPath(); cx.arc(p[0], p[1], 1.7, 0, 7); cx.fill();
+  }
+  cx.restore();
+}
+
+function draw(now, dt) {
+  cx.clearRect(0, 0, W, H);
+  cx.drawImage(base, 0, 0, W, H);
+  cx.drawImage(trail, 0, 0, W, H);
+  if (!S) return;
+  cx.lineCap = "round"; cx.lineJoin = "round";
+  drawFleetPulse(now);
+  drawGhostFlows(now);
+  const waiting = new Path2D(), road = new Path2D(), heads = [], cars = [];
+  for (const ln of S.lanes.values()) {
+    geo(ln);
+    if (ln.state === "wait") {
+      const grow = Math.max(0.01, Math.min(1, (now - ln.born) / 500));
+      addArc(waiting, ln.a, ln.c, ln.b, 0, ease(grow));
+      if (grow < 1) heads.push(bez(ln.a, ln.c, ln.b, ease(grow)));
+    } else {
+      const p = Math.max(0, Math.min(1, (S.clock - ln.from) / Math.max(1, ln.to - ln.from)));
+      ln.tv = Math.min(ln.known ? 1 : 0.96, 0.8 * p + 0.2 * (p - Math.sin(2 * Math.PI * p) / (2 * Math.PI)));
+      addArc(road, ln.a, ln.c, ln.b, 0, 1, 16);
+      cars.push(ln);
+    }
+  }
+  cx.lineWidth = 1;
+  cx.strokeStyle = "rgba(255,106,42,.42)"; cx.stroke(waiting);
+  cx.strokeStyle = "rgba(255,106,42,.15)"; cx.stroke(road);
+  cx.fillStyle = "#ff6a2a";
+  cx.beginPath(); for (const [x, y] of heads) { cx.moveTo(x + 1.8, y); cx.arc(x, y, 1.8, 0, 7); } cx.fill();
+  // car tails, each a short fading segment behind the car
+  cx.lineWidth = 2;
+  for (const ln of cars) {
+    const t = ln.tv;
+    cx.strokeStyle = "rgba(255,106,42,.85)";
+    cx.beginPath(); addArc(cx, ln.a, ln.c, ln.b, Math.max(0, t - 0.06), t, 6); cx.stroke();
+    cx.strokeStyle = "rgba(255,106,42,.35)";
+    cx.beginPath(); addArc(cx, ln.a, ln.c, ln.b, Math.max(0, t - 0.16), Math.max(0, t - 0.06), 8); cx.stroke();
+  }
+  cx.beginPath(); for (const ln of cars) { const [x, y] = bez(ln.a, ln.c, ln.b, ln.tv); cx.moveTo(x + 2.7, y); cx.arc(x, y, 2.7, 0, 7); } cx.fill();
+  cx.fillStyle = "#fff";
+  cx.beginPath(); for (const ln of cars) { const [x, y] = bez(ln.a, ln.c, ln.b, ln.tv); cx.moveTo(x + 1, y); cx.arc(x, y, 1, 0, 7); } cx.fill();
+  S.moving = cars.length;
+
+  S.fx = S.fx.filter(f => now - f.t0 < 900);
+  cx.lineWidth = 1;
+  for (const f of S.fx) {
+    const k = Math.max(0, Math.min(1, (now - f.t0) / 900)), e = 1 - (1 - k) ** 3;
+    cx.globalAlpha = 1 - k;
+    cx.strokeStyle = f.color;
+    if (f.kind === "ring") { cx.beginPath(); cx.arc(f.xy[0], f.xy[1], 3 + 16 * e, 0, 7); cx.stroke(); }
+    else if (f.kind === "ping") { cx.globalAlpha = 0.6 * (1 - k); cx.beginPath(); cx.arc(f.xy[0], f.xy[1], 2 + 8 * e, 0, 7); cx.stroke(); }
+    else if (f.kind === "x") { const r = 4 + 3 * e; cx.beginPath(); cx.moveTo(f.xy[0] - r, f.xy[1] - r); cx.lineTo(f.xy[0] + r, f.xy[1] + r); cx.moveTo(f.xy[0] + r, f.xy[1] - r); cx.lineTo(f.xy[0] - r, f.xy[1] + r); cx.stroke(); }
+  }
+  cx.globalAlpha = 1;
+}
+
+// ============================================================================
+// Side panel
+// ============================================================================
+const $ = id => document.getElementById(id);
+const pad = n => String(n).padStart(2, "0");
+const eur = c => (c < 0 ? "−€" : "€") + Math.round(Math.abs(c) / 100).toLocaleString("en-GB");
+const route = legs => legs.map(l => `${short(l.pickup.placeId)}→${short(l.delivery.placeId)}`).join(" + ");
+const short = id => (places[id]?.name ?? id).toUpperCase();
+const hhmm = m => `${pad(Math.floor((m % DAY) / 60))}:${pad(Math.floor(m % 60))}`;
+
+document.querySelector(".week-l").innerHTML = "MTWTFSSMTW".split("").map(c => `<span>${c}</span>`).join("");
+$("week").innerHTML = Array.from({ length: 10 }, () => "<div><span></span></div>").join("");
+const weekBars = [...document.querySelectorAll("#week span")];
+
+let pending = [], lastRows = 0;
+function log(cls, k, r, v, at) { pending.push({ cls, k, r, v, at }); }
+
+function panel() {
+  const s = S, m = s.view;
+  set("clock", `<small>${DAYF[Math.min(9, Math.floor(m / DAY))]}</small>${hhmm(m)}`, true);
+  weekBars.forEach((b, i) => b.style.transform = `scaleX(${Math.max(0, Math.min(1, (m - i * DAY) / DAY))})`);
+  set("margin", eur(s.margin));
+  $("margin").style.color = s.margin < 0 ? "var(--bad)" : "var(--hi)";
+  set("won", s.won.toLocaleString("en-GB"));
+  set("ontime", s.finished ? Math.round(100 * s.onTime / s.finished) + "%" : "—");
+  $("ontime").style.color = !s.finished ? "" : s.onTime / s.finished >= 0.9 ? "var(--hi)" : "var(--bad)";
+  set("moving", String(s.moving ?? 0));
+  set("delivered", s.delivered.toLocaleString("en-GB"));
+  const sp = Math.max(1, s.speed ?? s.base ?? 1), scale = sp >= 90 ? `${(sp / 60).toFixed(sp >= 600 ? 0 : 1)} h` : `${Math.round(sp)} min`;
+  set("foot", `${s.footBase ?? ""} · 1 s = ${scale}`);
+  const t = performance.now();
+  if (pending.length && t - lastRows > 180) {   // a departures board, not a firehose
+    lastRows = t;
+    const e = pending.at(-1); pending = [];
+    const rows = $("rows");
+    rows.insertAdjacentHTML("afterbegin", `<div class="row ${e.cls}"><span class="t">${hhmm(e.at)}</span><span class="k">${e.k}</span><span class="r">${e.r}</span><span class="v">${e.v}</span></div>`);
+    while (rows.children.length > 16) rows.lastChild.remove();
+  }
+  if (t - lastSpark > 250 && s.series.length !== sparkN) { lastSpark = t; sparkN = s.series.length; spark(); }
+}
+let lastSpark = 0, sparkN = -1;
+const shownText = {};
+function set(id, v, html) { if (shownText[id] === v) return; shownText[id] = v; html ? $(id).innerHTML = v : $(id).textContent = v; }
+
+const sp = $("spark"), spx = sp.getContext("2d");
+function spark() {
+  const w = sp.clientWidth, h = sp.clientHeight;
+  if (sp.width !== w * DPR) { sp.width = w * DPR; sp.height = h * DPR; spx.setTransform(DPR, 0, 0, DPR, 0, 0); }
+  spx.clearRect(0, 0, w, h);
+  const pts = S.series; if (pts.length < 2) return;
+  const t1 = 10 * DAY, vals = pts.map(p => p[1]), lo = Math.min(0, ...vals), hi = Math.max(0, ...vals), span = hi - lo || 1;
+  const y = v => h - 2 - (v - lo) / span * (h - 4);
+  spx.strokeStyle = "#2a3038"; spx.lineWidth = 1; spx.beginPath(); spx.moveTo(0, y(0)); spx.lineTo(w, y(0)); spx.stroke();
+  spx.strokeStyle = S.margin < 0 ? "#e5484d" : "#e8e6e1"; spx.lineWidth = 1.25; spx.beginPath();
+  pts.forEach(([at, v], i) => { const x = at / t1 * w; i ? spx.lineTo(x, y(v)) : spx.moveTo(x, y(v)); });
+  spx.stroke();
+}
+
+// ============================================================================
+// Showcase loop: the five strongest completed runs repeat in a fixed order.
+// Keeping this list explicit makes the video background deterministic and avoids
+// the old "show once" picker eventually running out of worlds.
+// ============================================================================
+const SHOWCASE_RUNS = [
+  { worldId: "wd73f8e4851108ac0b98a", marginCents: 1188327 }, // €11,883 · 249 orders · 92% on time
+  { worldId: "wcd0732a6e6fdbe709e07", marginCents: 1158831 }, // €11,588 · 341 orders · 91% on time
+  { worldId: "w45853c0d6839e6fcf06b", marginCents: 1140638 }, // €11,406 · 208 orders · 96% on time
+  { worldId: "wa765d504f8a0c8c6289b", marginCents: 1127657 }, // €11,277 · 258 orders · 95% on time
+  { worldId: "w88be2ca3ed637e78e784", marginCents: 1107972 }, // €11,080 · 276 orders · 93% on time
+];
+
+let weekNo = 0, playlist = [], playlistIndex = 0;
+const scores = new Map();   // worldId -> score of a finished run (it never changes)
+let upcoming = null;
+
+async function loadPlaylist() {
+  if (playlist.length) return playlist;
+  const byId = new Map((await api("/v1/worlds")).filter(w => w.ended).map(w => [w.worldId, w]));
+  playlist = SHOWCASE_RUNS.flatMap(run => {
+    const info = byId.get(run.worldId);
+    if (!info) return [];
+    scores.set(run.worldId, run);
+    return [info];
+  });
+  return playlist;
+}
+
+async function pickNext() {
+  const runs = await loadPlaylist();
+  if (!runs.length) return null;
+  const info = runs[playlistIndex++ % runs.length];
+  return loadWorld(info).catch(() => null);
+}
+
+async function nextWeek() {
+  const w = await (upcoming ?? pickNext());
+  upcoming = null;
+  if (!w) { set("foot", "waiting for a new high-profit run"); cv.style.opacity = 0.35; setTimeout(nextWeek, 15000); return; }
+  startWeek(w);
+  upcoming = pickNext();   // load the next week while this one plays
+}
+
+function startWeek(w) {
+  weekNo++;
+  S = prepare(w);
+  $("rows").innerHTML = ""; pending = [];
+  $("modeText").textContent = "REPLAY";
+  const slot = ((weekNo - 1) % playlist.length) + 1;
+  $("sub").textContent = `showcase ${slot} / ${playlist.length} · level ${w.info.level} · best practice run`;
+  S.footBase = `best run ${slot}/${playlist.length} · ${w.wins.toLocaleString("en-GB")} orders · ${eur(scores.get(w.info.worldId)?.marginCents ?? 0)}`;
+  const skip = +(location.hash.match(/skip=(\d+)/)?.[1] ?? 0);
+  if (skip && weekNo === 1) { for (let i = 0; i < skip * 30; i++) advanceClock(1 / 30); S.fx = []; }
+  cv.style.opacity = 1;
+}
+
+function finishWeek() {
+  if (S.done) return;
+  S.done = true;
+  const slot = ((weekNo - 1) % playlist.length) + 1;
+  $("sumLabel").textContent = `Showcase ${slot} complete`;
+  $("sumMargin").textContent = eur(S.margin);
+  $("sumMargin").style.color = S.margin < 0 ? "var(--bad)" : "var(--hi)";
+  const ot = S.finished ? Math.round(100 * S.onTime / S.finished) : 0;
+  $("sumLine").innerHTML = `${S.won.toLocaleString("en-GB")} orders · ${S.delivered.toLocaleString("en-GB")} cars delivered · ${ot}% on time`;
+  $("summary").classList.add("on");
+  // Leave the canvas visible while the next already-preloaded replay takes over.
+  // It reads as a continuous operations display instead of a black flash in video.
+  setTimeout(() => { $("summary").classList.remove("on"); setTimeout(nextWeek, 300); }, 3200);
+}
+
+// ============================================================================
+(async () => {
+  const map = await api("/v1/map");
+  placeList = map.places; for (const p of placeList) places[p.id] = p;
+  for (const r of map.roads) roads[r.from + ">" + r.to] = r;
+  addEventListener("resize", layout);
+  layout();
+  requestAnimationFrame(frame);
+  nextWeek();
+})();
+</script>
+</body>
+</html>

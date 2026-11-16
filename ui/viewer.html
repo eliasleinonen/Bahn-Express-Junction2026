@@ -1,0 +1,763 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spread viewer · Junction2026</title>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f4f4f2; --surface: #fcfcfb; --border: #e2e1dc;
+  --text: #0b0b0b; --text-2: #52514e; --muted: #8a8984;
+  --won: #2a78d6; --lost: #eb6834; --open: #1baf7a; --none: #b9b8b2;
+  --grid: #ecebe7; --accent: #2a78d6;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #121211; --surface: #1a1a19; --border: #2f2f2d;
+    --text: #f0efec; --text-2: #c3c2b7; --muted: #8d8c86;
+    --won: #3987e5; --lost: #d95926; --open: #199e70; --none: #5a5955;
+    --grid: #262624; --accent: #3987e5;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+header { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 5; }
+header h1 { font-size: 15px; margin: 0 8px 0 0; }
+select, input, button { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; }
+button { cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button:disabled { opacity: .45; cursor: default; }
+.group { display: flex; gap: 6px; align-items: center; padding-left: 10px; border-left: 1px solid var(--border); }
+.muted { color: var(--muted); }
+.sub { color: var(--text-2); }
+main { padding: 14px 16px 40px; display: grid; gap: 14px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; min-width: 0; }
+.card h2 { font-size: 13px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-2); }
+.tiles { display: flex; flex-wrap: wrap; gap: 10px; }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 8px 14px; min-width: 120px; }
+.tile .v { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.tile .l { font-size: 11px; color: var(--text-2); text-transform: uppercase; letter-spacing: .04em; }
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.tab { padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); }
+.tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.tab .n { font-size: 11px; opacity: .75; margin-left: 4px; }
+.row2 { display: grid; grid-template-columns: minmax(340px, 480px) 1fr; gap: 14px; }
+.map-card { --land: #e9eef3; --land-edge: #b9c6d3; --water: #d6e3ee; --town: #0b0b0b; }
+@media (prefers-color-scheme: dark) { .map-card { --land: #1d2530; --land-edge: #3a4a5c; --water: #0c1118; --town: #f0efec; } }
+.map-head { display: flex; justify-content: space-between; align-items: center; }
+.map-head h2 { margin: 0; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; padding: 3px 10px; font-size: 12px; }
+.seg button.on { background: var(--accent); color: #fff; }
+.map-wrap { position: relative; border-radius: 10px; overflow: hidden; background: radial-gradient(circle at 50% 70%, color-mix(in srgb, var(--water) 70%, var(--land-edge)) 0%, var(--water) 75%); }
+#map { display: block; }
+.map-clock { position: absolute; left: 12px; bottom: 10px; font: 600 22px/1 ui-monospace, Menlo, monospace; color: var(--text); opacity: .8; letter-spacing: .02em; pointer-events: none; }
+.map-clock small { display: block; font: 500 11px/1.4 -apple-system, sans-serif; color: var(--text-2); letter-spacing: 0; }
+.player { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.player input { flex: 1; accent-color: var(--accent); }
+.player button { width: 34px; }
+.halo-dot { background: radial-gradient(circle, #f2b84b 0%, #f2b84b55 60%, transparent 70%); width: 12px; height: 12px; }
+#map .lane { fill: none; stroke-linecap: round; transition: opacity .25s; }
+#map .flow { fill: none; stroke-linecap: round; stroke-dasharray: 2 10; animation: flow 1.2s linear infinite; pointer-events: none; }
+#map .fresh { animation: pulse 1.4s ease-out infinite; }
+@keyframes flow { to { stroke-dashoffset: -12; } }
+@keyframes pulse { 0% { r: 3; opacity: .9; } 100% { r: 16; opacity: 0; } }
+#map .town-label { font: 600 10.5px -apple-system, sans-serif; fill: var(--town); paint-order: stroke; stroke: var(--water); stroke-width: 3px; stroke-linejoin: round; pointer-events: none; }
+#map .town-label.small { font-weight: 500; font-size: 9px; opacity: .8; }
+#map .hit { fill: transparent; cursor: pointer; }
+@media (max-width: 1000px) { .row2 { grid-template-columns: 1fr; } }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+th { font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: var(--text-2); font-weight: 600; position: sticky; top: 0; background: var(--surface); }
+td.num, th.num { text-align: right; }
+tbody tr:hover { background: var(--grid); }
+tr.sel { outline: 2px solid var(--accent); outline-offset: -2px; }
+.scroll { max-height: 520px; overflow: auto; }
+.badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--border); white-space: nowrap; }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
+.opt { display: inline-block; margin: 1px 4px 1px 0; padding: 1px 6px; border-radius: 4px; background: var(--grid); white-space: nowrap; font-size: 12px; }
+.opt.taken { outline: 2px solid var(--won); }
+.flag { font-size: 11px; color: var(--text-2); margin-right: 6px; }
+.note { font-style: italic; color: var(--text-2); max-width: 280px; }
+.legend { display: flex; gap: 14px; font-size: 12px; color: var(--text-2); margin-bottom: 6px; flex-wrap: wrap; }
+.legend span { display: inline-flex; align-items: center; gap: 5px; }
+#tooltip { position: fixed; pointer-events: none; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; font-size: 12px; box-shadow: 0 4px 14px rgba(0,0,0,.15); display: none; z-index: 20; max-width: 280px; }
+#status { font-size: 12px; }
+.err { color: #e34948; }
+details summary { cursor: pointer; font-weight: 600; }
+.ref { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin-top: 10px; }
+.ref table td:first-child { white-space: nowrap; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+svg text { fill: var(--text-2); font-size: 10px; }
+.filters { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+.empty { padding: 20px; text-align: center; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Spread viewer</h1>
+  <select id="worldSel" title="World"><option value="">Loading worlds…</option></select>
+  <button id="refreshBtn" title="Reload this world">↻ Refresh</button>
+  <label class="sub"><input type="checkbox" id="autoRefresh"> auto (5 s)</label>
+  <div class="group">
+    <span class="sub">New practice world</span>
+    <select id="newLevel" title="Level">
+      <option>1</option><option>2</option><option>3</option><option>4</option>
+      <option>5</option><option>6</option><option>7</option><option selected>8</option>
+    </select>
+    <input id="newSeed" placeholder="seed (optional)" size="12">
+    <button id="createBtn">Create</button>
+  </div>
+  <div class="group" id="clockCtl">
+    <span class="sub">Clock</span>
+    <button data-adv="hour">+1 h</button>
+    <button data-adv="request">Next request</button>
+    <button data-adv="day">Next day 08:00</button>
+    <button data-adv="end">To end</button>
+    <button id="deleteBtn" title="Delete this practice world">Delete</button>
+  </div>
+  <span id="status" class="muted"></span>
+</header>
+
+<main>
+  <div class="tiles" id="tiles"></div>
+
+  <div class="card">
+    <div class="tabs" id="dayTabs"></div>
+  </div>
+
+  <div class="tiles" id="dayTiles"></div>
+
+  <div class="row2">
+    <div class="card map-card">
+      <div class="map-head">
+        <h2 title="*Until a world ends, the server reports unquoted requests as lost too. After the end the viewer uses the reveal to separate them.">Map · requests of the day</h2>
+        <div class="seg" id="mapView">
+          <button data-view="fi" class="on">Finland</button>
+          <button data-view="south">South</button>
+        </div>
+      </div>
+      <div class="legend">
+        <span><i class="dot" style="background:var(--won)"></i>won</span>
+        <span><i class="dot" style="background:var(--lost)"></i>lost*</span>
+        <span><i class="dot" style="background:var(--open)"></i>open</span>
+        <span><i class="dot" style="background:var(--none)"></i>not quoted</span>
+        <span><i class="dot halo-dot"></i>glow = drivers living there</span>
+      </div>
+      <div class="map-wrap">
+        <svg id="map" viewBox="0 0 460 640" width="100%"></svg>
+        <div class="map-clock" id="mapClock"></div>
+      </div>
+      <div class="player">
+        <button id="playBtn" title="Replay the day">▶</button>
+        <input type="range" id="timeSlider" min="360" max="1440" step="5" value="1440">
+        <span id="timeLabel" class="sub">whole day</span>
+      </div>
+    </div>
+    <div style="display:grid; gap:14px; min-width:0">
+      <div class="card">
+        <h2>Price requests per hour</h2>
+        <div class="legend">
+          <span><i class="dot" style="background:var(--won)"></i>won</span>
+          <span><i class="dot" style="background:var(--lost)"></i>lost</span>
+          <span><i class="dot" style="background:var(--open)"></i>open</span>
+          <span><i class="dot" style="background:var(--none)"></i>not quoted</span>
+        </div>
+        <svg id="hourChart" viewBox="0 0 720 170" width="100%"></svg>
+      </div>
+      <div class="card">
+        <h2>Money this day</h2>
+        <div id="ledger"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Price requests and their options</h2>
+    <div class="filters">
+      <select id="outcomeFilter">
+        <option value="">All outcomes</option><option value="won">Won</option>
+        <option value="lost">Lost</option><option value="open">Open</option><option value="none">Not quoted</option>
+      </select>
+      <label class="sub"><input type="checkbox" id="notesOnly"> with a note only</label>
+      <span class="muted" id="reqCount"></span>
+    </div>
+    <div class="scroll"><table id="reqTable"></table></div>
+  </div>
+
+  <div class="card">
+    <h2>Events of the day</h2>
+    <div class="filters">
+      <select id="kindFilter"></select>
+      <label class="sub"><input type="checkbox" id="hideNoise" checked> hide views, ledger and requests</label>
+    </div>
+    <div class="scroll"><table id="eventTable"></table></div>
+  </div>
+
+  <div class="card">
+    <h2>Orders and gigs (current state)</h2>
+    <div class="scroll"><table id="orderTable"></table></div>
+  </div>
+
+  <div class="card">
+    <details>
+      <summary>Reference: delivery options, actions and events</summary>
+      <div class="ref">
+        <div>
+          <h2>Delivery options (what a dealer offers)</h2>
+          <table>
+            <tr><td>same_day</td><td>Due 20:00 on the day the car is ready. Only when the request arrives by 15:00 and the drive can end 2 h before the deadline.</td></tr>
+            <tr><td>next_day</td><td>Due 20:00 on the next business day (Friday → Monday).</td></tr>
+            <tr><td>within_3_days</td><td>Due 20:00 on the 3rd business day after ready, no later than the last Monday.</td></tr>
+            <tr><td>private delivery</td><td>Booked hour; due 30 min after it ends. Trade-ins and private deliveries carry one option only.</td></tr>
+          </table>
+          <h2 style="margin-top:12px">Late refunds</h2>
+          <table>
+            <tr><td>≤ 2 h</td><td>10% back</td></tr>
+            <tr><td>2–24 h</td><td>25% back</td></tr>
+            <tr><td>&gt; 24 h, ≤ 2 business days</td><td>50% back</td></tr>
+            <tr><td>&gt; 2 business days</td><td>100% back</td></tr>
+            <tr><td>not delivered</td><td>no price + penalty 2× price</td></tr>
+          </table>
+        </div>
+        <div>
+          <h2>Actions (what our system can do)</h2>
+          <table>
+            <tr><td>quote</td><td>A price per option, before respondBy (15 min). Decline = quote far above list.</td></tr>
+            <tr><td>post</td><td>Put a gig (stops, audience, fee schedule of 1–48 rising steps) in the drivers' app.</td></tr>
+            <tr><td>offer</td><td>Direct offer to one driver for 10 min. Max 3/driver/day, 3 open per gig.</td></tr>
+            <tr><td>reprice</td><td>Replace the fee schedule of an unbooked gig.</td></tr>
+            <tr><td>withdraw</td><td>Take an unbooked gig out of the app.</td></tr>
+            <tr><td>release</td><td>End a booking before the driver leaves (25% / 50% / 100% fee; free after driver_late).</td></tr>
+          </table>
+        </div>
+        <div>
+          <h2>Events (what can happen)</h2>
+          <table>
+            <tr><td>price_request</td><td>Dealer asks for a price.</td></tr>
+            <tr><td>order_won / order_lost</td><td>Dealer's decision at respondBy.</td></tr>
+            <tr><td>gig_viewed / gig_booked</td><td>Driver opened / took a gig.</td></tr>
+            <tr><td>gig_dropped / no_show</td><td>Driver gave it back; gig is open again.</td></tr>
+            <tr><td>gig_expired</td><td>No booking before a stop window ended.</td></tr>
+            <tr><td>driver_late</td><td>Driver will pick up late (can release free).</td></tr>
+            <tr><td>deadline_close</td><td>No driver 3 h before lastPickupAt.</td></tr>
+            <tr><td>visit_failed</td><td>not_ready / closed / licence / no_plates.</td></tr>
+            <tr><td>order_changed / cancelled</td><td>New place or deadline / order gone.</td></tr>
+            <tr><td>forecast</td><td>Snow coming (level 5+).</td></tr>
+            <tr><td>ledger</td><td>A line of money in or out.</td></tr>
+          </table>
+        </div>
+      </div>
+    </details>
+  </div>
+</main>
+<div id="tooltip"></div>
+
+<script>
+const DAY = 1440;
+const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun", "Mon 2", "Tue 2", "Wed 2"];
+const OUTCOMES = { won: "won", lost: "lost", open: "open", none: "not quoted" };
+const NOISE = new Set(["gig_viewed", "ledger", "price_request"]);
+
+const S = { map: null, places: {}, roads: {}, worlds: [], world: null, snap: null, events: [], drivers: [], day: 0, selReq: null };
+const $ = id => document.getElementById(id);
+
+// ---------- formatting ----------
+const pad = n => String(n).padStart(2, "0");
+const dayOf = m => Math.floor(m / DAY);
+const hhmm = m => `${pad(Math.floor((m % DAY) / 60))}:${pad(m % 60)}`;
+const when = m => m == null ? "—" : `${DAY_NAMES[dayOf(m)] ?? "D" + dayOf(m)} ${hhmm(m)}`;
+const eur = c => c == null ? "—" : (c < 0 ? "−€" : "€") + (Math.abs(c) / 100).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const eur0 = c => c == null ? "—" : (c < 0 ? "−€" : "€") + Math.round(Math.abs(c) / 100).toLocaleString("en-GB");
+const pct = x => x == null ? "—" : (x * 100).toFixed(1) + "%";
+const place = id => S.places[id]?.name ?? id;
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const dur = m => `${Math.floor(m / 60)}h${pad(m % 60)}`;
+
+function status(msg, isErr) { $("status").textContent = msg; $("status").className = isErr ? "err" : "muted"; }
+
+async function api(path, opts = {}) {
+  const res = await fetch("/api" + path, { method: opts.method || "GET", headers: { "Content-Type": "application/json" }, body: opts.body ? JSON.stringify(opts.body) : undefined });
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+  return data;
+}
+
+// ---------- tooltip ----------
+const tip = $("tooltip");
+function showTip(e, html) { tip.innerHTML = html; tip.style.display = "block"; tip.style.left = Math.min(e.clientX + 14, innerWidth - 300) + "px"; tip.style.top = (e.clientY + 14) + "px"; }
+function hideTip() { tip.style.display = "none"; }
+
+// ---------- loading ----------
+async function loadMap() {
+  S.map = await api("/v1/map");
+  for (const p of S.map.places) S.places[p.id] = p;
+  for (const r of S.map.roads) S.roads[r.from + ">" + r.to] = r;
+}
+
+async function loadWorlds(selectId) {
+  S.worlds = await api("/v1/worlds");
+  const sel = $("worldSel");
+  sel.innerHTML = S.worlds.length ? "" : `<option value="">No worlds yet: create one →</option>`;
+  for (const w of [...S.worlds].reverse()) {
+    const tag = w.kind === "final" ? "FINAL" : w.boardRun ? `ranking r${w.season}/${w.boardRun}` : w.parent ? "fork" : "practice";
+    sel.add(new Option(`${w.worldId} · L${w.level} · ${tag}${w.ended ? " · ended" : ""}`, w.worldId));
+  }
+  const id = selectId || S.world || S.worlds.at(-1)?.worldId;
+  if (id) { sel.value = id; await loadWorld(id); }
+}
+
+async function loadWorld(id) {
+  if (!id) return;
+  status("Loading…");
+  const meta = S.worlds.find(w => w.worldId === id);
+  const [snap, events, drivers, reveal] = await Promise.all([
+    api(`/v1/worlds/${id}`), api(`/v1/worlds/${id}/events`), api(`/v1/worlds/${id}/drivers`).catch(() => []),
+    meta?.ended && !meta.boardRun ? api(`/v1/worlds/${id}/reveal`).catch(() => null) : null,
+  ]);
+  S.reveal = reveal;
+  const first = S.world !== id;
+  S.world = id; S.snap = snap; S.events = events; S.drivers = drivers;
+  index();
+  if (first) {
+    const reqDays = [...S.requests.values()].map(r => dayOf(r.arrivedAt));
+    const [hd, hv, ht] = location.hash.slice(1).split("/");
+    const hashDay = parseInt(hd, 10);
+    if (VIEWS[hv]) { S.mapView = hv; $("mapView").querySelectorAll("button").forEach(x => x.classList.toggle("on", x.dataset.view === hv)); }
+    if (ht && !isNaN(+ht)) { S.mapTime = +ht; $("timeSlider").value = +ht; $("timeLabel").textContent = hhmm(+ht); }
+    S.day = Number.isInteger(hashDay) ? hashDay : reqDays.length ? Math.max(...reqDays) : 0;
+  }
+  render();
+  const info = S.worlds.find(w => w.worldId === id);
+  $("clockCtl").querySelectorAll("button").forEach(b => b.disabled = !info || info.kind !== "practice" || info.ended || (b.id !== "deleteBtn" && snap.now >= snap.endsAt));
+  if (info?.kind === "practice") $("deleteBtn").disabled = false;
+  status(`Now ${when(snap.now)} · ${events.length} events · updated ${new Date().toLocaleTimeString()}`);
+}
+
+// Build lookups from the event log.
+function index() {
+  S.requests = new Map();
+  for (const e of S.events) if (e.kind === "price_request") S.requests.set(e.request.id, e.request);
+  for (const r of S.snap.openRequests || []) if (!S.requests.has(r.id)) S.requests.set(r.id, r);
+  S.won = new Map(); S.lost = new Set();
+  for (const e of S.events) {
+    if (e.kind === "order_won") S.won.set(e.order.id, e.order);
+    if (e.kind === "order_lost") S.lost.add(e.requestId);
+  }
+  S.openIds = new Set((S.snap.openRequests || []).map(r => r.id));
+  // The server sends order_lost for unquoted requests too; only the reveal (after the end) tells them apart.
+  S.revealed = new Map((S.reveal?.requests || []).map(x => [x.request.id, x]));
+  S.driversAt = {};
+  for (const d of S.drivers) S.driversAt[d.homePlaceId] = (S.driversAt[d.homePlaceId] || 0) + 1;
+}
+
+function outcome(r) {
+  const rv = S.revealed.get(r.id);
+  if (rv) return rv.outcome === "unquoted" ? "none" : rv.outcome;
+  if (S.won.has(r.id)) return "won";
+  if (S.lost.has(r.id)) return "lost";
+  if (S.openIds.has(r.id) || r.respondBy > S.snap.now) return "open";
+  return "none";
+}
+
+// ---------- rendering ----------
+function render() {
+  renderTiles(); renderTabs(); renderDay();
+}
+
+function tile(label, value, sub) {
+  return `<div class="tile"><div class="l">${label}</div><div class="v">${value}</div>${sub ? `<div class="muted">${sub}</div>` : ""}</div>`;
+}
+
+function renderTiles() {
+  const s = S.snap.score, info = S.worlds.find(w => w.worldId === S.world);
+  $("tiles").innerHTML =
+    tile("World time", when(S.snap.now), `ends ${when(S.snap.endsAt)}`) +
+    tile("Level", info?.level ?? "—", info?.kind) +
+    tile("Margin", eur0(s.marginCents), `revenue ${eur0(s.revenueCents)}`) +
+    tile("Orders won", s.wonOrders) +
+    tile("On time", pct(s.onTimeShare), s.ranked ? "ranked ✓" : "not ranked (needs ≥ 90%)") +
+    tile("Not delivered", pct(s.undeliveredShare)) +
+    tile("Drivers in world", S.drivers.length || "—");
+}
+
+function renderTabs() {
+  const counts = Array(DAY_NAMES.length).fill(0);
+  for (const r of S.requests.values()) counts[dayOf(r.arrivedAt)]++;
+  const nowDay = dayOf(S.snap.now);
+  $("dayTabs").innerHTML = DAY_NAMES.map((n, i) =>
+    `<button class="tab ${i === S.day ? "active" : ""}" data-day="${i}" ${i > nowDay ? 'style="opacity:.5"' : ""}>${n}<span class="n">${counts[i] || ""}</span></button>`).join("");
+  $("dayTabs").querySelectorAll("button").forEach(b => b.onclick = () => { S.day = +b.dataset.day; S.selReq = null; stopPlay(); S.mapTime = null; $("timeSlider").value = DAY; $("timeLabel").textContent = "whole day"; render(); });
+}
+
+function dayRequests() {
+  return [...S.requests.values()].filter(r => dayOf(r.arrivedAt) === S.day).sort((a, b) => a.arrivedAt - b.arrivedAt);
+}
+function dayEvents() { return S.events.filter(e => dayOf(e.at) === S.day); }
+
+function renderDay() {
+  const reqs = dayRequests(), evs = dayEvents();
+  const by = { won: 0, lost: 0, open: 0, none: 0 };
+  for (const r of reqs) by[outcome(r)]++;
+  const count = k => evs.filter(e => e.kind === k).length;
+  const cars = reqs.reduce((n, r) => n + r.legs.length, 0);
+  $("dayTiles").innerHTML =
+    tile(`${DAY_NAMES[S.day]} requests`, reqs.length, `${cars} cars`) +
+    tile("Won / lost", `${by.won} / ${by.lost}`, `${by.none} not quoted, ${by.open} open`) +
+    tile("Gigs booked", count("gig_booked"), `${count("gig_dropped")} dropped, ${count("gig_expired")} expired`) +
+    tile("Delivered", count("delivered"), `${count("visit_failed")} failed visits`) +
+    tile("Deadline warnings", count("deadline_close")) +
+    tile("Changes / cancels", `${count("order_changed")} / ${count("order_cancelled")}`) +
+    tile("Snow forecasts", count("forecast"));
+  renderMap(reqs); renderHours(reqs); renderLedger(evs); renderRequests(reqs); renderEvents(evs); renderOrders();
+}
+
+// ---------- map ----------
+// Simplified outline of Finland (lat, lon), clockwise from Hanko. Stylised, not survey-grade.
+const FINLAND = [
+  [59.82, 22.95], [59.98, 23.6], [60.1, 24.4], [60.15, 24.95], [60.27, 25.6], [60.38, 26.3], [60.45, 26.95],
+  [60.57, 27.75], [60.95, 28.45], [61.25, 29.0], [61.6, 29.6], [62.05, 30.2], [62.4, 31.0], [62.9, 31.55],
+  [63.3, 31.2], [63.75, 30.4], [64.2, 29.95], [64.75, 30.1], [65.15, 29.75], [65.65, 30.1], [66.1, 29.6],
+  [66.75, 29.2], [67.3, 29.9], [67.8, 30.0], [68.25, 28.65], [68.55, 28.4], [68.95, 28.75], [69.3, 29.0],
+  [69.7, 29.3], [69.95, 28.4], [70.08, 27.9], [69.9, 27.0], [69.7, 26.3], [69.45, 25.85], [69.05, 25.6],
+  [68.85, 25.1], [68.6, 24.1], [68.75, 23.2], [68.85, 22.2], [69.05, 21.3], [69.3, 20.6], [69.05, 20.55],
+  [68.55, 21.4], [68.4, 22.2], [68.2, 23.1], [67.9, 23.6], [67.4, 23.75], [66.8, 23.95], [66.3, 23.65],
+  [65.85, 24.15], [65.7, 24.6], [65.45, 25.25], [65.05, 25.35], [64.85, 25.0], [64.6, 24.4], [64.25, 23.85],
+  [63.85, 23.1], [63.6, 22.5], [63.3, 22.1], [63.1, 21.55], [62.75, 21.1], [62.3, 21.3], [61.85, 21.35],
+  [61.5, 21.45], [61.13, 21.4], [60.8, 21.3], [60.5, 21.5], [60.25, 22.1], [60.0, 22.4], [59.82, 22.95],
+];
+const VIEWS = {
+  fi: { lat: [59.55, 67.3], lon: [20.6, 31.8], W: 460 },
+  south: { lat: [59.75, 62.45], lon: [21.0, 28.6], W: 460 },
+};
+const COS = Math.cos(63 * Math.PI / 180);
+S.mapView = "fi"; S.mapTime = null;
+
+function projector(view) {
+  const v = VIEWS[view], pad = 18;
+  const w = (v.lon[1] - v.lon[0]) * COS, h = v.lat[1] - v.lat[0];
+  const sc = (v.W - 2 * pad) / w, H = Math.round(h * sc + 2 * pad);
+  return { W: v.W, H, xy: (lat, lon) => [pad + (lon - v.lon[0]) * COS * sc, H - pad - (lat - v.lat[0]) * sc] };
+}
+
+// A curved lane from a to b, bending to the right of the travel direction so A→B and B→A separate.
+function arc([ax, ay], [bx, by], bend) {
+  const mx = (ax + bx) / 2, my = (ay + by) / 2, dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy) || 1;
+  const k = Math.min(60, len * bend);
+  return `M${ax.toFixed(1)},${ay.toFixed(1)} Q${(mx - dy / len * k).toFixed(1)},${(my + dx / len * k).toFixed(1)} ${bx.toFixed(1)},${by.toFixed(1)}`;
+}
+
+function placeLabels(items, W, H) {
+  // Greedy: biggest towns first, try four spots, skip when nothing fits.
+  const boxes = items.map(t => [t.x - t.r, t.y - t.r, t.x + t.r, t.y + t.r]);
+  const hit = (b) => boxes.some(o => b[0] < o[2] && b[2] > o[0] && b[1] < o[3] && b[3] > o[1]);
+  const out = [];
+  for (const t of [...items].sort((a, b) => b.d - a.d)) {
+    const w = t.name.length * (t.small ? 5.2 : 6.1), h = 11, g = t.r + 3;
+    const spots = [[t.x + g, t.y + 4, "start"], [t.x - g, t.y + 4, "end"], [t.x, t.y - g - 2, "middle"], [t.x, t.y + g + 9, "middle"]];
+    for (const [x, y, anchor] of spots) {
+      const x0 = anchor === "start" ? x : anchor === "end" ? x - w : x - w / 2;
+      const b = [x0, y - h + 2, x0 + w, y + 2];
+      if (b[0] < 2 || b[2] > W - 2 || b[1] < 2 || b[3] > H - 2 || hit(b)) continue;
+      boxes.push(b); out.push({ ...t, lx: x, ly: y, anchor }); break;
+    }
+  }
+  return out;
+}
+
+function renderMap(reqs) {
+  const svg = $("map"), P = projector(S.mapView), { W, H } = P;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const at = id => { const p = S.places[id]; return p ? P.xy(p.lat, p.lon) : [0, 0]; };
+  const t = S.mapTime, maxD = Math.max(1, ...Object.values(S.driversAt));
+  const south = S.mapView === "south";
+
+  let out = `<defs>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <radialGradient id="halo"><stop offset="0" stop-color="#f2b84b" stop-opacity=".85"/><stop offset=".45" stop-color="#f2b84b" stop-opacity=".35"/><stop offset="1" stop-color="#f2b84b" stop-opacity="0"/></radialGradient>
+    <linearGradient id="landGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--land)"/><stop offset="1" stop-color="var(--land)" stop-opacity=".85"/></linearGradient>
+    <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" fill="none" stroke="var(--land-edge)" stroke-opacity=".18" stroke-width=".6"/></pattern>
+  </defs>`;
+  const outline = "M" + FINLAND.map(([la, lo]) => P.xy(la, lo).map(v => v.toFixed(1)).join(",")).join("L") + "Z";
+  out += `<path d="${outline}" fill="url(#landGrad)" stroke="var(--land-edge)" stroke-width="1.2" stroke-linejoin="round"/>`;
+  out += `<path d="${outline}" fill="url(#grid)"/>`;
+
+  // Driver halos underneath everything else.
+  for (const p of S.map.places) {
+    const d = S.driversAt[p.id] || 0; if (!d) continue;
+    const [x, y] = at(p.id), r = (south ? 14 : 8) + (south ? 34 : 22) * Math.sqrt(d / maxD);
+    out += `<circle cx="${x}" cy="${y}" r="${r}" fill="url(#halo)"/>`;
+  }
+
+  // Lanes: newest on top, won last so it reads strongest.
+  const rank = { none: 0, lost: 1, open: 2, won: 3 };
+  const legs = reqs.flatMap(r => r.legs.map((l, i) => ({ r, l, i, o: outcome(r) })))
+    .filter(x => t == null || x.r.arrivedAt - S.day * DAY <= t)
+    .sort((a, b) => rank[a.o] - rank[b.o] || a.r.arrivedAt - b.r.arrivedAt);
+  let lanes = "", flows = "", heads = "";
+  for (const { r, l, i, o } of legs) {
+    const a = at(l.pickup.placeId), b = at(l.delivery.placeId), sel = S.selReq === r.id;
+    const dim = S.selReq && !sel, age = t == null ? 999 : t - (r.arrivedAt - S.day * DAY), fresh = age < 45;
+    const op = dim ? 0.08 : sel ? 1 : fresh ? 0.95 : t == null ? 0.42 : Math.max(0.28, 0.85 - age / 600);
+    const sw = sel ? 3.2 : fresh ? 2.2 : 1.3;
+    const d = l.pickup.placeId === l.delivery.placeId
+      ? `M${a[0]},${a[1]} c-14,-20 14,-20 0,0` : arc(a, b, 0.18);
+    lanes += `<path class="lane" d="${d}" stroke="var(--${o})" stroke-width="${sw}" opacity="${op}" ${sel || fresh ? 'filter="url(#glow)"' : ""}/>`;
+    if (!dim && (sel || fresh || t == null) && o !== "none")
+      flows += `<path class="flow" d="${d}" stroke="#fff" stroke-opacity="${sel || fresh ? .9 : .35}" stroke-width="${sel ? 2 : 1.2}"/>`;
+    lanes += `<path class="hit lane" d="${d}" stroke="transparent" stroke-width="9" data-req="${r.id}" data-leg="${i}"/>`;
+    if (!dim) heads += `<circle cx="${b[0]}" cy="${b[1]}" r="${sel ? 3.5 : 2}" fill="var(--${o})"/>`;
+    if (fresh && !dim) heads += `<circle class="fresh" cx="${a[0]}" cy="${a[1]}" r="3" fill="none" stroke="var(--${o})" stroke-width="1.5"/>`;
+  }
+  out += lanes + flows + heads;
+
+  // Towns and labels.
+  const towns = S.map.places.map(p => {
+    const [x, y] = at(p.id), d = S.driversAt[p.id] || 0;
+    return { id: p.id, name: p.name, x, y, d, r: 2.5 + 3.5 * Math.sqrt(d / maxD), small: d < maxD * 0.15 };
+  }).filter(tw => tw.x > -20 && tw.x < W + 20 && tw.y > -20 && tw.y < H + 20);
+  for (const tw of towns) {
+    out += `<circle cx="${tw.x}" cy="${tw.y}" r="${tw.r}" fill="var(--surface)" stroke="var(--town)" stroke-width="1.4"/>`;
+  }
+  for (const lb of placeLabels(towns, W, H))
+    out += `<text class="town-label ${lb.small ? "small" : ""}" x="${lb.lx}" y="${lb.ly}" text-anchor="${lb.anchor}">${esc(lb.name)}</text>`;
+  for (const tw of towns) out += `<circle class="hit" cx="${tw.x}" cy="${tw.y}" r="${Math.max(9, tw.r + 5)}" data-place="${tw.id}"/>`;
+
+  svg.innerHTML = out;
+  const shown = legs.length;
+  $("mapClock").innerHTML = t == null ? `${DAY_NAMES[S.day]}<small>${shown} cars requested</small>` : `${DAY_NAMES[S.day]} ${hhmm(Math.min(t, DAY - 1))}<small>${shown} cars so far</small>`;
+
+  svg.querySelectorAll("[data-place]").forEach(c => {
+    c.onmousemove = e => {
+      const id = c.dataset.place;
+      const from = reqs.filter(r => r.legs.some(l => l.pickup.placeId === id)).length;
+      const to = reqs.filter(r => r.legs.some(l => l.delivery.placeId === id)).length;
+      showTip(e, `<b>${esc(place(id))}</b><br>${S.driversAt[id] || 0} drivers live here<br>${from} requests pick up here, ${to} deliver here (${DAY_NAMES[S.day]})`);
+    };
+    c.onmouseleave = hideTip;
+  });
+  svg.querySelectorAll("[data-req]").forEach(el => {
+    el.onmousemove = e => { const r = S.requests.get(el.dataset.req); showTip(e, reqTip(r, +el.dataset.leg)); };
+    el.onmouseleave = hideTip;
+    el.onclick = () => selectReq(el.dataset.req);
+  });
+}
+
+// Map controls: view switch and day replay.
+$("mapView").querySelectorAll("button").forEach(b => b.onclick = () => {
+  S.mapView = b.dataset.view;
+  $("mapView").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
+  renderMap(dayRequests());
+});
+function setMapTime(v) {
+  S.mapTime = v >= DAY ? null : v;
+  $("timeSlider").value = v;
+  $("timeLabel").textContent = S.mapTime == null ? "whole day" : hhmm(v);
+  renderMap(dayRequests());
+}
+$("timeSlider").oninput = e => { stopPlay(); setMapTime(+e.target.value); };
+let playTimer = null;
+function stopPlay() { clearInterval(playTimer); playTimer = null; $("playBtn").textContent = "▶"; }
+$("playBtn").onclick = () => {
+  if (playTimer) return stopPlay();
+  let v = S.mapTime == null || S.mapTime >= 20 * 60 ? 7 * 60 : S.mapTime;
+  $("playBtn").textContent = "❚❚";
+  playTimer = setInterval(() => {
+    v += 5;
+    if (v > 20 * 60) { stopPlay(); return setMapTime(DAY); }
+    setMapTime(v);
+  }, 90);
+};
+
+function road(a, b) { return S.roads[a + ">" + b]; }
+
+function reqTip(r, legIdx) {
+  const l = r.legs[legIdx], rd = road(l.pickup.placeId, l.delivery.placeId);
+  return `<b>${esc(r.id)}</b> · ${OUTCOMES[outcome(r)]}<br>${esc(place(l.pickup.placeId))} → ${esc(place(l.delivery.placeId))}` +
+    (rd ? ` · ${rd.km} km, ${dur(rd.minutes)}` : "") +
+    `<br>arrived ${when(r.arrivedAt)}<br>typical fee ${eur(r.referenceFeeCents)}<br>` +
+    r.options.map(o => `${o.kind}: ${eur(o.listPriceCents)} by ${when(o.deadline)}`).join("<br>");
+}
+
+function renderHours(reqs) {
+  const svg = $("hourChart"), W = 720, H = 170, L = 30, B = 22, T = 8;
+  const bins = Array.from({ length: 24 }, () => ({ won: 0, lost: 0, open: 0, none: 0 }));
+  for (const r of reqs) bins[Math.floor((r.arrivedAt % DAY) / 60)][outcome(r)]++;
+  const max = Math.max(1, ...bins.map(b => b.won + b.lost + b.open + b.none));
+  const step = max <= 5 ? 1 : Math.ceil(max / 4 / 5) * 5;
+  const bw = (W - L) / 24, y = v => H - B - (v / max) * (H - B - T);
+  let out = "";
+  for (let v = 0; v <= max; v += step) out += `<line x1="${L}" x2="${W}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)"/><text x="${L - 6}" y="${y(v) + 3}" text-anchor="end">${v}</text>`;
+  bins.forEach((b, h) => {
+    let base = 0;
+    const x = L + h * bw + 2;
+    for (const k of ["won", "lost", "open", "none"]) {
+      if (!b[k]) continue;
+      const y1 = y(base + b[k]), y0 = y(base);
+      out += `<rect x="${x}" y="${y1}" width="${bw - 4}" height="${Math.max(0, y0 - y1 - 2)}" rx="2" fill="var(--${k})"/>`;
+      base += b[k];
+    }
+    out += `<rect x="${L + h * bw}" y="${T}" width="${bw}" height="${H - B - T}" fill="transparent" data-h="${h}"/>`;
+    if (h % 2 === 0) out += `<text x="${x + (bw - 4) / 2}" y="${H - 6}" text-anchor="middle">${pad(h)}</text>`;
+  });
+  svg.innerHTML = out;
+  svg.querySelectorAll("[data-h]").forEach(el => {
+    const b = bins[+el.dataset.h];
+    el.onmousemove = e => showTip(e, `<b>${DAY_NAMES[S.day]} ${pad(+el.dataset.h)}:00–${pad(+el.dataset.h + 1)}:00</b><br>won ${b.won} · lost ${b.lost} · open ${b.open} · not quoted ${b.none}`);
+    el.onmouseleave = hideTip;
+  });
+}
+
+function renderLedger(evs) {
+  const kinds = {};
+  let total = 0;
+  for (const e of evs) if (e.kind === "ledger") { kinds[e.line.kind] = (kinds[e.line.kind] || 0) + e.line.cents; total += e.line.cents; }
+  let cum = 0;
+  for (const e of S.events) if (e.kind === "ledger" && dayOf(e.at) <= S.day) cum += e.line.cents;
+  const rows = Object.entries(kinds).sort((a, b) => b[1] - a[1]);
+  $("ledger").innerHTML = rows.length ? `<table><thead><tr><th>Line</th><th class="num">${DAY_NAMES[S.day]}</th></tr></thead><tbody>` +
+    rows.map(([k, c]) => `<tr><td>${k.replace(/_/g, " ")}</td><td class="num">${eur(c)}</td></tr>`).join("") +
+    `<tr><td><b>Day total</b></td><td class="num"><b>${eur(total)}</b></td></tr><tr><td class="sub">Margin to end of day</td><td class="num sub">${eur(cum)}</td></tr></tbody></table>` :
+    `<div class="empty">No money moved this day. Revenue counts when an order's last car is delivered.</div>`;
+}
+
+function carFlags(car) {
+  const f = [];
+  if (car.premium) f.push("premium");
+  if (car.electric) f.push(`EV ${car.chargePercent ?? "?"}%`);
+  return f.map(x => `<span class="flag">${x}</span>`).join("");
+}
+
+function renderRequests(reqs) {
+  const of = $("outcomeFilter").value, notes = $("notesOnly").checked;
+  const rows = reqs.filter(r => (!of || outcome(r) === of) && (!notes || r.note));
+  $("reqCount").textContent = `${rows.length} of ${reqs.length}`;
+  if (!reqs.length) { $("reqTable").innerHTML = `<tr><td class="empty">No price requests on ${DAY_NAMES[S.day]}${S.day > dayOf(S.snap.now) ? " yet: move the clock" : ""}.</td></tr>`; return; }
+  $("reqTable").innerHTML = `<thead><tr><th>Arrived</th><th>Request</th><th>Cars (pickup → delivery)</th><th>Options: list price · deadline</th><th class="num">Typical fee</th><th>Note</th><th>Outcome</th></tr></thead><tbody>` +
+    rows.map(r => {
+      const o = outcome(r), order = S.won.get(r.id);
+      const legs = r.legs.map(l => {
+        const rd = road(l.pickup.placeId, l.delivery.placeId);
+        return `<div>${esc(place(l.pickup.placeId))}${l.pickup.privateAddress ? " <span class='flag'>(private)</span>" : ""} → ${esc(place(l.delivery.placeId))}${l.delivery.privateAddress ? " <span class='flag'>(private)</span>" : ""}` +
+          ` <span class="muted">${rd ? `${rd.km} km · ${dur(rd.minutes)}` : ""}</span> ${carFlags(l.car)}<br><span class="muted">ready ${when(l.pickup.window.from)}</span></div>`;
+      }).join("");
+      const opts = r.options.map(op => `<span class="opt ${order?.option === op.kind ? "taken" : ""}">${op.kind} · ${eur0(op.listPriceCents)} · ${when(op.deadline)}</span>`).join("<br>");
+      const res = `<span class="badge"><i class="dot" style="background:var(--${o})"></i>${OUTCOMES[o]}</span>` + (order ? `<div class="muted">${order.option} at ${eur(order.priceCents)}</div>` : "");
+      return `<tr data-req="${r.id}" class="${S.selReq === r.id ? "sel" : ""}"><td>${hhmm(r.arrivedAt)}<div class="muted">reply by ${hhmm(r.respondBy)}</div></td><td>${esc(r.id)}<div class="muted">${esc(r.dealerId)}${r.batchId ? " · batch " + esc(r.batchId) : ""}${r.legs.length > 1 ? " · trade-in" : ""}</div></td><td>${legs}</td><td>${opts}</td><td class="num">${eur(r.referenceFeeCents)}</td><td class="note">${r.note ? `[${r.note.language}] ${esc(r.note.text)}` : ""}</td><td>${res}</td></tr>`;
+    }).join("") + "</tbody>";
+  $("reqTable").querySelectorAll("tr[data-req]").forEach(tr => tr.onclick = () => selectReq(tr.dataset.req));
+}
+
+function selectReq(id) {
+  S.selReq = S.selReq === id ? null : id;
+  const reqs = dayRequests();
+  renderMap(reqs); renderRequests(reqs);
+}
+
+function describe(e) {
+  const g = e.gigId ? `gig ${esc(e.gigId)}` : "";
+  switch (e.kind) {
+    case "price_request": return `${esc(e.request.id)} from ${esc(e.request.dealerId)}`;
+    case "order_won": return `${esc(e.order.id)}: ${e.order.option} at ${eur(e.order.priceCents)}, due ${when(e.order.deadline)}, last pickup ${when(e.order.lastPickupAt)}`;
+    case "order_lost": return esc(e.requestId);
+    case "order_changed": return `${esc(e.order.id)}: ${esc(e.message?.text)} (due ${when(e.order.deadline)})`;
+    case "order_cancelled": return `${esc(e.orderId)}: ${e.gigs.map(x => `${esc(x.gigId)} ${x.outcome}`).join(", ") || "no gigs"}`;
+    case "release": return `${esc(e.orderId)} leg ${e.leg} can be collected`;
+    case "gig_booked": return `${g} by ${esc(e.driverId)} at ${eur(e.feeCents)}`;
+    case "gig_viewed": case "gig_dropped": case "gig_started": case "no_show": return `${g} · driver ${esc(e.driverId)}`;
+    case "driver_late": return `${g} · driver ${esc(e.driverId)} picks up ${when(e.pickupAt)}`;
+    case "gig_expired": return g;
+    case "offer_answered": return `${g} · driver ${esc(e.driverId)}: ${e.answer}`;
+    case "picked_up": case "delivered": return `${esc(e.orderId)} leg ${e.leg} at ${esc(place(e.placeId))} (${g})`;
+    case "visit_failed": return `${esc(e.orderId)} leg ${e.leg}: ${e.reason} (${g})`;
+    case "deadline_close": return `${esc(e.orderId)}: no driver, last pickup ${when(e.lastPickupAt)}`;
+    case "forecast": return `${esc(e.text)} · ${e.placeIds.map(place).join(", ")} · ${when(e.from)}–${when(e.to)}`;
+    case "ledger": return `${e.line.kind.replace(/_/g, " ")} ${eur(e.line.cents)} · ${esc(e.line.detail)}`;
+    default: return esc(JSON.stringify(e));
+  }
+}
+
+function renderEvents(evs) {
+  const kinds = [...new Set(S.events.map(e => e.kind))].sort();
+  const sel = $("kindFilter"), cur = sel.value;
+  sel.innerHTML = `<option value="">All kinds</option>` + kinds.map(k => `<option ${k === cur ? "selected" : ""}>${k}</option>`).join("");
+  const hide = $("hideNoise").checked && !cur;
+  const rows = evs.filter(e => (!cur || e.kind === cur) && !(hide && NOISE.has(e.kind)));
+  $("eventTable").innerHTML = rows.length ? `<thead><tr><th>Time</th><th>Event</th><th>Details</th></tr></thead><tbody>` +
+    rows.slice(-1500).map(e => `<tr><td>${hhmm(e.at)}</td><td>${e.kind}</td><td>${describe(e)}</td></tr>`).join("") + "</tbody>" :
+    `<tr><td class="empty">No events to show.</td></tr>`;
+}
+
+function renderOrders() {
+  const orders = S.snap.orders || [], gigs = S.snap.gigs || [];
+  const gigsOf = id => gigs.filter(g => g.stops.some(s => s.orderId === id));
+  if (!orders.length) { $("orderTable").innerHTML = `<tr><td class="empty">No orders yet.</td></tr>`; return; }
+  $("orderTable").innerHTML = `<thead><tr><th>Order</th><th>Status</th><th>Option</th><th class="num">Price</th><th>Deadline</th><th>Last pickup</th><th>Cars</th><th>Gigs (status · fee · driver)</th></tr></thead><tbody>` +
+    [...orders].sort((a, b) => a.deadline - b.deadline).map(o => `<tr><td>${esc(o.id)}</td><td>${o.status}</td><td>${o.option}</td><td class="num">${eur(o.priceCents)}</td><td>${when(o.deadline)}</td><td>${when(o.lastPickupAt)}</td>` +
+      `<td>${o.legs.map(l => `${esc(place(l.pickup.placeId))} → ${esc(place(l.delivery.placeId))}`).join("<br>")}</td>` +
+      `<td>${gigsOf(o.id).map(g => `${esc(g.id)} · ${g.status} · ${eur(g.feeCents)}${g.driverId ? " · " + esc(g.driverId) : ""}`).join("<br>") || '<span class="muted">none</span>'}</td></tr>`).join("") + "</tbody>";
+}
+
+// ---------- controls ----------
+$("worldSel").onchange = e => loadWorld(e.target.value).catch(err => status(err.message, true));
+$("refreshBtn").onclick = () => loadWorlds(S.world).catch(err => status(err.message, true));
+$("outcomeFilter").onchange = () => renderRequests(dayRequests());
+$("notesOnly").onchange = () => renderRequests(dayRequests());
+$("kindFilter").onchange = () => renderEvents(dayEvents());
+$("hideNoise").onchange = () => renderEvents(dayEvents());
+
+let timer = null;
+$("autoRefresh").onchange = e => {
+  clearInterval(timer);
+  if (e.target.checked) timer = setInterval(() => S.world && loadWorld(S.world).catch(err => status(err.message, true)), 5000);
+};
+
+$("createBtn").onclick = async () => {
+  const body = { level: +$("newLevel").value };
+  if ($("newSeed").value.trim()) body.seed = $("newSeed").value.trim();
+  try {
+    status("Creating world…");
+    const { worldId } = await api("/v1/worlds", { method: "POST", body });
+    S.world = null;
+    await loadWorlds(worldId);
+  } catch (err) { status(err.message, true); }
+};
+
+$("deleteBtn").onclick = async () => {
+  if (!S.world || !confirm(`Delete practice world ${S.world}? This frees its slot.`)) return;
+  try { await api(`/v1/worlds/${S.world}`, { method: "DELETE" }); S.world = null; await loadWorlds(); }
+  catch (err) { status(err.message, true); }
+};
+
+$("clockCtl").querySelectorAll("[data-adv]").forEach(b => b.onclick = async () => {
+  const now = S.snap.now, end = S.snap.endsAt;
+  const body = {
+    hour: { by: 60 },
+    request: { untilEvent: ["price_request"], max: end },
+    day: { to: Math.min(end, (dayOf(now) + 1) * DAY + 8 * 60) },
+    end: { to: end },
+  }[b.dataset.adv];
+  try {
+    status("Advancing…");
+    await api(`/v1/worlds/${S.world}/advance`, { method: "POST", body });
+    const day = S.day;
+    await loadWorld(S.world);
+    const nowDay = dayOf(S.snap.now);
+    if (day !== nowDay && nowDay < DAY_NAMES.length) { S.day = nowDay; render(); }
+  } catch (err) { status(err.message, true); }
+});
+
+// ---------- start ----------
+(async () => {
+  try {
+    const cfg = await (await fetch("/config")).json();
+    await loadMap();
+    if (!cfg.hasKey) { status("No SPREAD_KEY: put the team key in .env and restart the viewer.", true); return; }
+    await loadWorlds();
+  } catch (err) { status(err.message, true); }
+})();
+</script>
+</body>
+</html>

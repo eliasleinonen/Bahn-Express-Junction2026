@@ -1,0 +1,3 @@
+# Spread kit (client + starter). Needs no other packages.
+spread @ https://spread.bahnexpress.com/kit/spread-0.1.0-py3-none-any.whl
+google-genai
