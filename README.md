@@ -49,10 +49,48 @@ The final system is an integrated, event-driven portfolio dispatcher that models
 - **Deterministic Rule Extraction**: Highly conservative NLP parser covering Finnish, Swedish, and English dealer notes.
 - **Actionable Constraints**: Extracts site opening hours, earliest pickup times, delivery deadlines, transit plate requirements, manual gearbox needs, and seasonal tyre constraints (e.g. flagging summer tyres in winter/snow conditions).
 
-### 4. Multi-Order Chaining & Route Economics (`pair_economics.py`)
-- **Route Chaining**: Combines compatible single-car orders into multi-car driver gigs to save driver fees.
-- **Safety Bounds**: Enforces strict driving-time limits (<= 5 hours), bridge driving limits (<= 60 minutes between dropoff and next pickup), and idle-time limits (<= 60 minutes).
-- **Economic Feasibility**: Evaluates joint risk and requires a positive net margin gain before locking in paired routes.
+### 4. Route Chaining & Multi-Order Economics (`pair_economics.py`, `dispatch.py`)
+
+A major driver of margin optimization in the system is **route chaining**: bundling multiple compatible single-car orders into a single, sequential multi-stop driver gig. Instead of paying two drivers separate fees, one driver executes the combined sequence in a continuous run.
+
+#### A. The Economic Advantage
+- **Singles Cost Model**: Two individual gigs open at $0.90 \times \text{reference}$ and escalate up to $1.60 \times \text{reference}$ each (totaling up to $3.20 \times \text{reference}$ under late escalation).
+- **Bundled Chaining Model**: A chained pair opens at **$0.75 \times \sum \text{references}$** and ramps in waking-minute steps to **$0.90 \times \sum \text{references}$** (`_bundle_schedule`).
+- **Net Margin Gain**: Captures full dealer revenue from both cars while slashing driver acquisition costs by **50% to 65%** on the second vehicle.
+
+#### B. Strict Eligibility Gate (`_chainable`)
+To protect against compounding delays, an order must pass strict screening before entering the chaining candidate pool:
+1. **Single-Leg Only**: Excludes trade-in multi-leg orders (`len(order["legs"]) == 1`).
+2. **Commercial Yards Only**: Strictly prohibits private pickup or delivery addresses (`privateAddress == False`) to ensure predictable turnaround and avoid residential access delays.
+3. **Vehicle Constraints**: Excludes premium cars (which require specialized drivers) and gates electric vehicles by battery state-of-charge (`chargePercent >= V5_CHAIN_ELECTRIC_MIN_SOC`) to eliminate mid-route charging delays.
+4. **Dealer Note Screening**: Automatically disqualifies orders with binding equipment constraints (e.g. transit plates, manual licence) or ambiguous instructions.
+
+#### C. Spatiotemporal Simulation & Road Feasibility (`_chain_plan`)
+Before forming a pair `[Order A, Order B]`, the engine simulates the minute-by-minute timeline over the actual Finnish road network matrix:
+- **Phase 1 (Leg A)**: Pickup A arrival $\rightarrow$ window check $[t_{\text{from}}, t_{\text{last\_pickup}}] \rightarrow$ drive time $\rightarrow$ delivery A arrival $\rightarrow$ window check $[t_{\text{delivery\_from}}, t_{\text{deadline}}]$.
+- **Phase 2 (Bridge Drive)**: Driver travels empty from Delivery A to Pickup B.
+  - **Bridge Distance Ceiling**: Capped at $\le 30$ km (`V5_CHAIN_MAX_BRIDGE_KM`) to prevent wasteful deadheading across regions.
+  - **Bridge Travel Time**: Looked up from the road map; must be $\le 60$ minutes (`max_bridge_minutes`).
+- **Phase 3 (Leg B)**: Pickup B arrival $\rightarrow$ window check $\rightarrow$ drive time $\rightarrow$ delivery B arrival $\rightarrow$ window check.
+- **Safety Bounds**:
+  - Total cumulative driving time across both legs and bridge must be $\le 12$ hours (`driving <= 12 * HOUR`).
+  - Total idle waiting time between site opening hours must not exceed 60 minutes (`idle_minutes <= 60`).
+  - If any stop window or deadline is violated along the sequence, the candidate pair is immediately rejected.
+
+#### D. Merit Scoring & Added-Risk Valuation (`_chain_merit`, `evaluate_pair`)
+The planner evaluates both possible execution orderings (`[A, B]` and `[B, A]`) using an explainable merit objective:
+$$\text{Merit} = \sum_{i \in \{A, B\}} \text{ReferenceFee}_i - (\text{Bridge KM} \times 80\text{ cents/km}) - (\text{Compound Route Risk} \times 2500\text{ cents})$$
+In `pair_economics.py`, the net saving must strictly exceed a minimum profit threshold ($\ge €5.00$):
+$$\text{Net Saving} = \text{Fee}_{\text{single }A} + \text{Fee}_{\text{single }B} - \text{Fee}_{\text{pair}} - \text{BridgeCost} - \Delta\text{LateLoss} \ge 500\text{ cents}$$
+Where $\Delta\text{LateLoss}$ explicitly prices the compound risk of late delivery penalties across both cars.
+
+#### E. Retroactive Single-Gig Interception & De-escalation
+The chaining engine operates dynamically across two coordination stages:
+1. **Waiting Queue (`self.waiting`)**: Newly won orders enter a brief holding buffer (`V5_POOL_MINUTES`) to search for immediate complementary orders.
+2. **Retroactive Interception (`_open_single_orders`)**: If a newly won order matches with an *already-posted, unbooked single gig*, the engine withdraws the single gig (`_unplan_open_gigs`) and atomicly reposts both orders as a unified chained pair within the same API batch.
+3. **Patience Timeout & Graceful De-escalation (`_take_second_look`)**:
+   - Chained gigs are given a strict patience window (`V5_PAIR_PATIENCE_MINUTES = 45m`).
+   - If freelance drivers do not book the pair within 45 minutes, the engine splits the bundle, flags the orders in `self.pair_failed_orders` (to prevent endless churn), and unplans them to immediately post as independent, high-priority single gigs with standard fee ramps.
 
 ### 5. Dynamic Driver Fee Ladder & Late Recovery
 - **Waking-Hour Stepping**: Posts gigs at 0.90× standard reference fees and escalates across 8 daytime steps up to 1.60× as the safe pickup cutoff approaches.
