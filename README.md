@@ -114,10 +114,8 @@ The chaining engine operates dynamically across two coordination stages:
 
 ```
 .
-├── dispatch.py               # Main final portfolio dispatcher
+├── dispatch.py               # The complete portfolio dispatch system (entrypoint)
 ├── dispatch_core.py          # Core runtime loop, event handling, and CLI runner
-├── dispatch_v5.py            # Backward-compatibility alias for dispatch.py
-├── dispatch_v3_core.py       # Backward-compatibility alias for dispatch_core.py
 ├── note_constraints.py       # Multilingual dealer note constraint extraction
 ├── pair_economics.py         # Multi-car gig pairing feasibility & economics
 ├── fleet_booking_model.py    # Offline driver booking probability models

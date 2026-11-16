@@ -5,16 +5,16 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 
 import decision_dataset
-import dispatch_v5
+import dispatch
 
 
-def make_desk(path: Path | None) -> dispatch_v5.PortfolioDesk:
+def make_desk(path: Path | None) -> dispatch.PortfolioDesk:
     if path is None:
         os.environ.pop("V5_DECISION_LOG", None)
     else:
         os.environ["V5_DECISION_LOG"] = str(path)
     world = SimpleNamespace(id="shadow-world", client=SimpleNamespace(map=lambda: {"roads": []}))
-    desk = dispatch_v5.PortfolioDesk(world, 8, 480, 1.65, 0.80, 1000, "all")
+    desk = dispatch.PortfolioDesk(world, 8, 480, 1.65, 0.80, 1000, "all")
     order = {"id": "order", "option": "next_day", "deadline": 2_000, "lastPickupAt": 1_000,
              "legs": [{"pickup": {"placeId": "A", "privateAddress": False, "window": {"from": 600, "to": 1_000}},
                        "delivery": {"placeId": "B", "privateAddress": False, "window": {"from": 700, "to": 2_000}},
@@ -28,7 +28,7 @@ def make_desk(path: Path | None) -> dispatch_v5.PortfolioDesk:
     return desk
 
 
-def install_post_record(desk: dispatch_v5.PortfolioDesk, path: Path) -> str:
+def install_post_record(desk: dispatch.PortfolioDesk, path: Path) -> str:
     record = decision_dataset.make_decision_record(kind="post", world_id="shadow-world", at=480,
         snapshot={"now": 480}, action={"type": "post", "stops": []})
     decision_dataset.append_record(path, record)
