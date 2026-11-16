@@ -54,8 +54,8 @@ The final system is an integrated, event-driven portfolio dispatcher that models
 A major driver of margin optimization in the system is **route chaining**: bundling multiple compatible single-car orders into a single, sequential multi-stop driver gig. Instead of paying two drivers separate fees, one driver executes the combined sequence in a continuous run.
 
 #### A. The Economic Advantage
-- **Singles Cost Model**: Two individual gigs open at $0.90 \times \text{reference}$ and escalate up to $1.60 \times \text{reference}$ each (totaling up to $3.20 \times \text{reference}$ under late escalation).
-- **Bundled Chaining Model**: A chained pair opens at **$0.75 \times \sum \text{references}$** and ramps in waking-minute steps to **$0.90 \times \sum \text{references}$** (`_bundle_schedule`).
+- **Singles Cost Model**: Two individual gigs open at `0.90×` reference fee and escalate up to `1.60×` reference each (totaling up to `3.20×` reference under late escalation).
+- **Bundled Chaining Model**: A chained pair opens at **`0.75×` total reference fee** and ramps in waking-minute steps to **`0.90×` total reference fee** (`_bundle_schedule`).
 - **Net Margin Gain**: Captures full dealer revenue from both cars while slashing driver acquisition costs by **50% to 65%** on the second vehicle.
 
 #### B. Strict Eligibility Gate (`_chainable`)
@@ -67,21 +67,25 @@ To protect against compounding delays, an order must pass strict screening befor
 
 #### C. Spatiotemporal Simulation & Road Feasibility (`_chain_plan`)
 Before forming a pair `[Order A, Order B]`, the engine simulates the minute-by-minute timeline over the actual Finnish road network matrix:
-- **Phase 1 (Leg A)**: Pickup A arrival $\rightarrow$ window check $[t_{\text{from}}, t_{\text{last\_pickup}}] \rightarrow$ drive time $\rightarrow$ delivery A arrival $\rightarrow$ window check $[t_{\text{delivery\_from}}, t_{\text{deadline}}]$.
+- **Phase 1 (Leg A)**: Pickup A arrival → window check `[pickup_from, last_pickup_at]` → drive time → delivery A arrival → window check `[delivery_from, deadline]`.
 - **Phase 2 (Bridge Drive)**: Driver travels empty from Delivery A to Pickup B.
-  - **Bridge Distance Ceiling**: Capped at $\le 30$ km (`V5_CHAIN_MAX_BRIDGE_KM`) to prevent wasteful deadheading across regions.
-  - **Bridge Travel Time**: Looked up from the road map; must be $\le 60$ minutes (`max_bridge_minutes`).
-- **Phase 3 (Leg B)**: Pickup B arrival $\rightarrow$ window check $\rightarrow$ drive time $\rightarrow$ delivery B arrival $\rightarrow$ window check.
+  - **Bridge Distance Ceiling**: Capped at ≤ 30 km (`V5_CHAIN_MAX_BRIDGE_KM`) to prevent wasteful deadheading across regions.
+  - **Bridge Travel Time**: Looked up from the road map; must be ≤ 60 minutes (`max_bridge_minutes`).
+- **Phase 3 (Leg B)**: Pickup B arrival → window check `[pickup_from, last_pickup_at]` → drive time → delivery B arrival → window check `[delivery_from, deadline]`.
 - **Safety Bounds**:
-  - Total cumulative driving time across both legs and bridge must be $\le 12$ hours (`driving <= 12 * HOUR`).
+  - Total cumulative driving time across both legs and bridge must be ≤ 12 hours (`driving <= 12 * HOUR`).
   - Total idle waiting time between site opening hours must not exceed 60 minutes (`idle_minutes <= 60`).
   - If any stop window or deadline is violated along the sequence, the candidate pair is immediately rejected.
 
 #### D. Merit Scoring & Added-Risk Valuation (`_chain_merit`, `evaluate_pair`)
 The planner evaluates both possible execution orderings (`[A, B]` and `[B, A]`) using an explainable merit objective:
-$$\text{Merit} = \sum_{i \in \{A, B\}} \text{ReferenceFee}_i - (\text{Bridge KM} \times 80\text{ cents/km}) - (\text{Compound Route Risk} \times 2500\text{ cents})$$
-In `pair_economics.py`, the net saving must strictly exceed a minimum profit threshold ($\ge €5.00$):
-$$\text{Net Saving} = \text{Fee}_{\text{single }A} + \text{Fee}_{\text{single }B} - \text{Fee}_{\text{pair}} - \text{BridgeCost} - \Delta\text{LateLoss} \ge 500\text{ cents}$$
+
+$$\text{Merit} = \sum_{i \in \{A, B\}} \text{ReferenceFee}_i - (\text{Bridge KM} \times 80) - (\text{Compound Route Risk} \times 2500)$$
+
+In `pair_economics.py`, the net saving must strictly exceed a minimum profit threshold (≥ €5.00):
+
+$$\text{Net Saving} = \text{Fee}_A + \text{Fee}_B - \text{Fee}_{\text{pair}} - \text{BridgeCost} - \Delta\text{LateLoss} \ge 500\text{ cents}$$
+
 Where $\Delta\text{LateLoss}$ explicitly prices the compound risk of late delivery penalties across both cars.
 
 #### E. Retroactive Single-Gig Interception & De-escalation
